@@ -1,6 +1,7 @@
 .git/
 .github/
 results/
+test_data/
 __pycache__/
 *.pyc
 .venv/

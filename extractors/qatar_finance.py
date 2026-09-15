@@ -13,6 +13,7 @@ from playwright.sync_api import (
 
 
 SOURCE_NAME = "qatar_monaqasat"
+SOURCE_CURRENCY = "QAR"
 
 BASE_URL = (
     "https://monaqasat.mof.gov.qa/"
@@ -220,6 +221,9 @@ def read_card(
 
         "تاريخ الإغلاق":
             "",
+
+        "_currency":
+            SOURCE_CURRENCY,
 
         "_source":
             SOURCE_NAME,
