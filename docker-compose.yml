@@ -2,5 +2,6 @@ services:
   tenders:
     build: .
     container_name: tenders_pipeline
+
     volumes:
       - ./results:/app/results
