@@ -18,7 +18,7 @@ from playwright.sync_api import (
 
 
 # ============================================================
-# SOURCE SETTINGS
+# SOURCE
 # ============================================================
 
 SOURCE_NAME = "bahrain_tender_board"
@@ -30,7 +30,7 @@ START_URL = (
 
 
 # ============================================================
-# PROJECT PATHS
+# PATHS
 # ============================================================
 
 PROJECT_ROOT = (
@@ -60,7 +60,11 @@ DEBUG_DIR = (
 
 PAGE_TIMEOUT_MS = 60_000
 
-MAX_PAGES = 500
+MAX_PAGES = 45
+
+PAGE_DELAY_MS = 1_500
+
+OPEN_RETRIES = 2
 
 
 # ============================================================
@@ -80,12 +84,13 @@ TYPE_RE = re.compile(
 
 
 # ============================================================
-# BLOCK / CAPTCHA WORDS
+# SITE RESTRICTION MARKERS
 # ============================================================
 
 BLOCK_MARKERS = [
     "captcha",
     "verify you are human",
+    "are you human",
     "access denied",
     "forbidden",
     "unusual traffic",
@@ -94,7 +99,27 @@ BLOCK_MARKERS = [
 
 
 # ============================================================
-# CLEAN TEXT
+# CUSTOM EXCEPTIONS
+# ============================================================
+
+class SiteRestrictedError(RuntimeError):
+    """
+    الموقع نفسه رفض الوصول.
+    في هذه الحالة لا نجرب متصفح ثاني.
+    """
+    pass
+
+
+class BrowserAttemptError(RuntimeError):
+    """
+    مشكلة تقنية في المتصفح أو تحميل الصفحة.
+    هنا نقدر نجرب المتصفح التالي.
+    """
+    pass
+
+
+# ============================================================
+# TEXT CLEANING
 # ============================================================
 
 def clean(value):
@@ -105,7 +130,7 @@ def clean(value):
 
 
 # ============================================================
-# LOAD EXISTING JSON
+# LOAD EXISTING DATA
 # ============================================================
 
 def load_existing():
@@ -115,29 +140,37 @@ def load_existing():
         return []
 
 
-    data = json.loads(
-        OUTPUT_FILE.read_text(
-            encoding="utf-8"
-        )
-    )
+    try:
 
-
-    if not isinstance(
-        data,
-        list
-    ):
-
-        raise RuntimeError(
-            "bahrain.json must contain "
-            "a JSON list."
+        data = json.loads(
+            OUTPUT_FILE.read_text(
+                encoding="utf-8"
+            )
         )
 
 
-    return data
+        if isinstance(
+            data,
+            list
+        ):
+
+            return data
+
+
+    except Exception as error:
+
+        print(
+            f"[{SOURCE_NAME}] "
+            f"Warning: could not read old JSON: "
+            f"{error}"
+        )
+
+
+    return []
 
 
 # ============================================================
-# SAVE JSON SAFELY
+# SAFE SAVE
 # ============================================================
 
 def save_atomic(records):
@@ -172,12 +205,10 @@ def save_atomic(records):
 
 
 # ============================================================
-# UNIQUE KEY
+# UNIQUE RECORD KEY
 # ============================================================
 
 def record_key(record):
-
-    # Bahrain Detail URL is the most stable key.
 
     return clean(
         record.get(
@@ -195,12 +226,12 @@ def record_key(record):
 
 
 # ============================================================
-# SAVE DEBUG FILES
+# DEBUG
 # ============================================================
 
 def save_debug(
     page,
-    name
+    name,
 ):
 
     DEBUG_DIR.mkdir(
@@ -211,12 +242,10 @@ def save_debug(
 
     try:
 
-        html_file = (
+        (
             DEBUG_DIR
             / f"{name}.html"
-        )
-
-        html_file.write_text(
+        ).write_text(
             page.content(),
             encoding="utf-8",
         )
@@ -228,14 +257,10 @@ def save_debug(
 
     try:
 
-        screenshot_file = (
-            DEBUG_DIR
-            / f"{name}.png"
-        )
-
         page.screenshot(
             path=str(
-                screenshot_file
+                DEBUG_DIR
+                / f"{name}.png"
             ),
             full_page=True,
         )
@@ -246,14 +271,14 @@ def save_debug(
 
 
 # ============================================================
-# CHECK BLOCK / CAPTCHA
+# CHECK PAGE FOR BLOCK / CAPTCHA
 # ============================================================
 
 def check_block(page):
 
     try:
 
-        text = (
+        body = (
             page
             .locator("body")
             .inner_text(
@@ -262,6 +287,7 @@ def check_block(page):
             .lower()
         )
 
+
     except Exception:
 
         return
@@ -269,21 +295,92 @@ def check_block(page):
 
     for marker in BLOCK_MARKERS:
 
-        if marker in text:
+        if marker in body:
 
             save_debug(
                 page,
-                "bahrain_possible_block"
+                "bahrain_access_restricted",
             )
 
-            raise RuntimeError(
-                "Possible block/CAPTCHA "
-                f"detected: {marker}"
+
+            raise SiteRestrictedError(
+                "Bahrain website appears to "
+                f"restrict access: {marker}"
             )
 
 
 # ============================================================
-# DISCOVER TENDER ROWS
+# WATCH NETWORK RESPONSES
+# ============================================================
+
+def attach_network_monitor(
+    page,
+    restriction_events,
+):
+
+    def handle_response(
+        response
+    ):
+
+        try:
+
+            status = response.status
+
+            url = response.url
+
+
+            if status in (
+                403,
+                429,
+            ):
+
+                restriction_events.append(
+                    {
+                        "status": status,
+                        "url": url,
+                    }
+                )
+
+        except Exception:
+
+            pass
+
+
+    page.on(
+        "response",
+        handle_response,
+    )
+
+
+# ============================================================
+# CHECK NETWORK RESTRICTIONS
+# ============================================================
+
+def check_network_restrictions(
+    restriction_events,
+):
+
+    if not restriction_events:
+
+        return
+
+
+    last_event = (
+        restriction_events[
+            -1
+        ]
+    )
+
+
+    raise SiteRestrictedError(
+        "Bahrain server returned "
+        f"HTTP {last_event['status']} "
+        f"for {last_event['url']}"
+    )
+
+
+# ============================================================
+# FIND TENDER ROWS
 # ============================================================
 
 def discover_rows(page):
@@ -292,8 +389,8 @@ def discover_rows(page):
         r"""
         () => {
 
-            const clean = s =>
-                (s || '')
+            const clean = value =>
+                (value || '')
                 .replace(/\s+/g, ' ')
                 .trim();
 
@@ -306,11 +403,11 @@ def discover_rows(page):
                 /\b(Internal|External)\b/i;
 
 
-            const isTenderRow = el => {
+            const isTenderRow = element => {
 
                 const text =
                     clean(
-                        el.innerText
+                        element.innerText
                     );
 
 
@@ -327,11 +424,12 @@ def discover_rows(page):
                 const dates =
                     text.match(
                         dateRe
-                    ) || [];
+                    )
+                    || [];
 
 
                 const detailLink =
-                    el.querySelector(
+                    element.querySelector(
                         'a[href*="TenderDetails" i]'
                     );
 
@@ -360,27 +458,22 @@ def discover_rows(page):
                 );
 
 
-            // إذا structure الموقع تغير شوي،
-            // نجرب كل العناصر داخل tender block.
-
             if (!candidates.length) {
 
                 candidates =
-                    Array
-                    .from(
+                    Array.from(
                         document.querySelectorAll(
                             '#cphBaseBody_CphInnerBody_TenderDetailsBlock *'
                         )
                     )
                     .filter(
-                        el => {
+                        element => {
 
                             const children =
                                 (
-                                    el.children
+                                    element.children
                                     || []
-                                )
-                                .length;
+                                ).length;
 
 
                             return (
@@ -388,36 +481,36 @@ def discover_rows(page):
                                 &&
                                 children <= 15
                                 &&
-                                isTenderRow(el)
+                                isTenderRow(
+                                    element
+                                )
                             );
                         }
                     );
             }
 
 
-            // نشيل parent elements
-            // لو كان داخلها نفس tender row.
-
             candidates =
                 candidates.filter(
-                    el =>
-                        !Array
-                        .from(
-                            el.children
+                    element =>
+                        !Array.from(
+                            element.children
                             || []
                         )
                         .some(
                             child =>
-                                isTenderRow(child)
+                                isTenderRow(
+                                    child
+                                )
                         )
                 );
 
 
             return candidates.map(
-                el => {
+                element => {
 
                     const link =
-                        el.querySelector(
+                        element.querySelector(
                             'a[href*="TenderDetails" i]'
                         );
 
@@ -426,19 +519,18 @@ def discover_rows(page):
 
                         text:
                             clean(
-                                el.innerText
+                                element.innerText
                             ),
 
                         parts:
-                            Array
-                            .from(
-                                el.children
+                            Array.from(
+                                element.children
                                 || []
                             )
                             .map(
-                                x =>
+                                child =>
                                     clean(
-                                        x.innerText
+                                        child.innerText
                                     )
                             )
                             .filter(
@@ -452,19 +544,19 @@ def discover_rows(page):
                                     link.innerText
                                 )
                                 :
-                                '',
+                                "",
 
                         href:
                             link
                                 ?
                                 (
                                     link.getAttribute(
-                                        'href'
+                                        "href"
                                     )
-                                    || ''
+                                    || ""
                                 )
                                 :
-                                ''
+                                ""
                     };
                 }
             );
@@ -510,15 +602,16 @@ def discover_rows(page):
 
 
 # ============================================================
-# WAIT FOR TENDER ROWS
+# WAIT FOR ROWS
 # ============================================================
 
 def wait_for_rows(
     page,
-    seconds=30,
+    restriction_events,
+    seconds=35,
 ):
 
-    end_time = (
+    deadline = (
         time.time()
         +
         seconds
@@ -528,8 +621,13 @@ def wait_for_rows(
     while (
         time.time()
         <
-        end_time
+        deadline
     ):
+
+        check_network_restrictions(
+            restriction_events
+        )
+
 
         check_block(
             page
@@ -546,14 +644,11 @@ def wait_for_rows(
             return rows
 
 
-        # Check whether Bahrain showed its error modal.
-
+        # Bahrain popup
         try:
 
-            modal = (
-                page.locator(
-                    "#myModal"
-                )
+            modal = page.locator(
+                "#myModal"
             )
 
 
@@ -570,18 +665,30 @@ def wait_for_rows(
 
                 save_debug(
                     page,
-                    "bahrain_modal_error"
+                    "bahrain_error_popup",
                 )
 
 
-                raise RuntimeError(
-                    "Bahrain website displayed "
-                    f"an error popup: {modal_text}"
+                check_network_restrictions(
+                    restriction_events
                 )
 
-        except RuntimeError:
+
+                raise BrowserAttemptError(
+                    "Bahrain page displayed "
+                    f"popup: {modal_text}"
+                )
+
+
+        except SiteRestrictedError:
 
             raise
+
+
+        except BrowserAttemptError:
+
+            raise
+
 
         except Exception:
 
@@ -595,22 +702,26 @@ def wait_for_rows(
 
     save_debug(
         page,
-        "bahrain_rows_not_found"
+        "bahrain_rows_timeout",
     )
 
 
-    raise RuntimeError(
-        "No Bahrain tender rows "
-        "loaded after waiting."
+    check_network_restrictions(
+        restriction_events
+    )
+
+
+    raise BrowserAttemptError(
+        "Tender rows did not load."
     )
 
 
 # ============================================================
-# TENDER NUMBER FROM DETAIL URL
+# TENDER NUMBER FROM URL
 # ============================================================
 
 def tender_number_from_url(
-    detail_url
+    detail_url,
 ):
 
     if not detail_url:
@@ -659,7 +770,7 @@ def tender_number_from_url(
 
 
 # ============================================================
-# REMOVE TENDER NUMBER FROM SUBJECT
+# CLEAN SUBJECT
 # ============================================================
 
 def remove_number_from_subject(
@@ -699,7 +810,7 @@ def remove_number_from_subject(
 
 
 # ============================================================
-# PARSE ONE ROW
+# PARSE ROW
 # ============================================================
 
 def parse_row(
@@ -732,10 +843,6 @@ def parse_row(
     )
 
 
-    # --------------------------------------------------------
-    # ROW NUMBER
-    # --------------------------------------------------------
-
     row_number = ""
 
 
@@ -751,10 +858,6 @@ def parse_row(
             )
         )
 
-
-    # --------------------------------------------------------
-    # TENDER TYPE
-    # --------------------------------------------------------
 
     tender_type = ""
 
@@ -778,9 +881,8 @@ def parse_row(
 
         if match:
 
-            type_index = (
-                index
-            )
+            type_index = index
+
 
             tender_type = (
                 match
@@ -790,12 +892,9 @@ def parse_row(
                 .title()
             )
 
+
             break
 
-
-    # --------------------------------------------------------
-    # DATES
-    # --------------------------------------------------------
 
     dates = (
         DATE_RE
@@ -805,20 +904,12 @@ def parse_row(
     )
 
 
-    # --------------------------------------------------------
-    # SUBJECT
-    # --------------------------------------------------------
-
     raw_subject = clean(
         row.get(
             "linkText"
         )
     )
 
-
-    # --------------------------------------------------------
-    # PURCHASING AUTHORITY
-    # --------------------------------------------------------
 
     authority = ""
 
@@ -844,7 +935,6 @@ def parse_row(
 
 
         after_type = (
-
             parts[
                 type_index + 1:
             ]
@@ -880,16 +970,10 @@ def parse_row(
                 continue
 
 
-            authority = (
-                value
-            )
+            authority = value
 
             break
 
-
-    # --------------------------------------------------------
-    # DETAIL URL
-    # --------------------------------------------------------
 
     href = clean(
         row.get(
@@ -911,10 +995,6 @@ def parse_row(
     )
 
 
-    # --------------------------------------------------------
-    # TENDER NUMBER
-    # --------------------------------------------------------
-
     tender_number = (
         tender_number_from_url(
             detail_url
@@ -929,10 +1009,6 @@ def parse_row(
         )
     )
 
-
-    # --------------------------------------------------------
-    # FINAL RECORD
-    # --------------------------------------------------------
 
     return {
 
@@ -1006,17 +1082,19 @@ def parse_row(
 
 
 # ============================================================
-# GET PAGE RECORDS
+# EXTRACT CURRENT PAGE
 # ============================================================
 
 def extract_page(
     page,
     page_number,
+    restriction_events,
 ):
 
     rows = wait_for_rows(
         page,
-        seconds=30,
+        restriction_events,
+        seconds=35,
     )
 
 
@@ -1033,12 +1111,10 @@ def extract_page(
 
 
 # ============================================================
-# FINGERPRINT
+# PAGE FINGERPRINT
 # ============================================================
 
-def fingerprint(
-    records
-):
+def fingerprint(records):
 
     return tuple(
 
@@ -1058,7 +1134,7 @@ def fingerprint(
 
 
 # ============================================================
-# FIND PAGE NUMBER BUTTON
+# PAGE NUMBER CONTROL
 # ============================================================
 
 def find_page_number(
@@ -1102,6 +1178,7 @@ def find_page_number(
 
                     return item
 
+
             except Exception:
 
                 pass
@@ -1111,7 +1188,7 @@ def find_page_number(
 
 
 # ============================================================
-# FIND NEXT BUTTON
+# NEXT CONTROL
 # ============================================================
 
 def find_next(page):
@@ -1119,8 +1196,7 @@ def find_next(page):
     candidates = [
 
         page.locator(
-            "ul.DoctorHolder "
-            "a"
+            "ul.DoctorHolder a"
         ),
 
         page.locator(
@@ -1143,10 +1219,8 @@ def find_next(page):
             locator.count()
         ):
 
-            item = (
-                locator.nth(
-                    index
-                )
+            item = locator.nth(
+                index
             )
 
 
@@ -1160,17 +1234,12 @@ def find_next(page):
                 if (
                     item.is_visible()
                     and
-                    (
-                        text.lower()
-                        ==
-                        "next"
-                        or
-                        "next"
-                        in text.lower()
-                    )
+                    "next"
+                    in text.lower()
                 ):
 
                     return item
+
 
             except Exception:
 
@@ -1181,7 +1250,7 @@ def find_next(page):
 
 
 # ============================================================
-# DISABLED?
+# DISABLED CONTROL?
 # ============================================================
 
 def is_disabled(element):
@@ -1218,22 +1287,24 @@ def is_disabled(element):
             )
         )
 
+
     except Exception:
 
         return False
 
 
 # ============================================================
-# WAIT UNTIL PAGE CHANGES
+# WAIT FOR PAGE CHANGE
 # ============================================================
 
 def wait_change(
     page,
     old_fingerprint,
-    seconds=20,
+    restriction_events,
+    seconds=25,
 ):
 
-    end_time = (
+    deadline = (
         time.time()
         +
         seconds
@@ -1243,8 +1314,18 @@ def wait_change(
     while (
         time.time()
         <
-        end_time
+        deadline
     ):
+
+        check_network_restrictions(
+            restriction_events
+        )
+
+
+        check_block(
+            page
+        )
+
 
         try:
 
@@ -1255,7 +1336,7 @@ def wait_change(
 
             if rows:
 
-                new_records = [
+                temporary = [
 
                     parse_row(
                         row,
@@ -1269,7 +1350,7 @@ def wait_change(
 
                 new_fingerprint = (
                     fingerprint(
-                        new_records
+                        temporary
                     )
                 )
 
@@ -1284,13 +1365,18 @@ def wait_change(
                     return True
 
 
+        except SiteRestrictedError:
+
+            raise
+
+
         except Exception:
 
             pass
 
 
         page.wait_for_timeout(
-            350
+            400
         )
 
 
@@ -1298,13 +1384,14 @@ def wait_change(
 
 
 # ============================================================
-# MOVE TO NEXT PAGE
+# MOVE NEXT PAGE
 # ============================================================
 
 def next_page(
     page,
     current_page,
     old_fingerprint,
+    restriction_events,
 ):
 
     target_number = (
@@ -1314,36 +1401,39 @@ def next_page(
     )
 
 
-    # --------------------------------------------------------
-    # Try exact next page number
-    # --------------------------------------------------------
-
-    target = (
-        find_page_number(
-            page,
-            target_number,
-        )
+    target = find_page_number(
+        page,
+        target_number,
     )
 
 
     if target:
 
-        target.click(
-            timeout=15_000
-        )
+        try:
+
+            target.click(
+                timeout=15_000
+            )
 
 
-        if wait_change(
-            page,
-            old_fingerprint,
-        ):
+            if wait_change(
+                page,
+                old_fingerprint,
+                restriction_events,
+            ):
 
-            return True
+                return True
 
 
-    # --------------------------------------------------------
-    # Try Next
-    # --------------------------------------------------------
+        except SiteRestrictedError:
+
+            raise
+
+
+        except Exception:
+
+            pass
+
 
     next_control = (
         find_next(
@@ -1371,6 +1461,7 @@ def next_page(
     if wait_change(
         page,
         old_fingerprint,
+        restriction_events,
     ):
 
         return True
@@ -1385,226 +1476,512 @@ def next_page(
     )
 
 
-    raise RuntimeError(
+    raise BrowserAttemptError(
         "Could not move from "
-        f"Bahrain page "
-        f"{current_page} "
-        f"to {target_number}."
+        f"page {current_page} "
+        f"to page {target_number}."
     )
 
 
 # ============================================================
-# OPEN WEBSITE AND LOAD RESULTS
+# BROWSER LAUNCHERS
 # ============================================================
 
-def open_and_load_results(
+def launch_browser(
     playwright,
+    browser_name,
 ):
 
-    # --------------------------------------------------------
-    # Try installed Google Chrome first.
-    #
-    # We are NOT manually calling Bahrain's internal API.
-    # Chrome runs the public webpage's own JavaScript.
-    # --------------------------------------------------------
+    if (
+        browser_name
+        ==
+        "Google Chrome"
+    ):
 
-    try:
-
-        browser = (
+        return (
             playwright
             .chromium
             .launch(
                 channel="chrome",
+                headless=False,
+                args=[
+                    "--start-minimized",
+                ],
+            )
+        )
 
-                # نفتح المتصفح قدامك
-                # في آخر تجربة عشان نشوف
-                # هل الموقع يتعامل معه طبيعي.
+
+    if (
+        browser_name
+        ==
+        "Chromium"
+    ):
+
+        return (
+            playwright
+            .chromium
+            .launch(
                 headless=False,
             )
         )
 
 
-        print(
-            f"[{SOURCE_NAME}] "
-            "Using installed Google Chrome."
+    if (
+        browser_name
+        ==
+        "Firefox"
+    ):
+
+        return (
+            playwright
+            .firefox
+            .launch(
+                headless=False,
+            )
+        )
+
+
+    if (
+        browser_name
+        ==
+        "WebKit"
+    ):
+
+        return (
+            playwright
+            .webkit
+            .launch(
+                headless=False,
+            )
+        )
+
+
+    raise ValueError(
+        f"Unknown browser: "
+        f"{browser_name}"
+    )
+
+
+# ============================================================
+# OPEN WEBSITE
+# ============================================================
+
+def open_site_with_browser(
+    playwright,
+    browser_name,
+):
+
+    print(
+        "\n"
+        +
+        "=" * 60
+    )
+
+    print(
+        f"[{SOURCE_NAME}] "
+        f"Trying browser: "
+        f"{browser_name}"
+    )
+
+    print(
+        "=" * 60
+    )
+
+
+    try:
+
+        browser = launch_browser(
+            playwright,
+            browser_name,
+        )
+
+
+    except Exception as error:
+
+        raise BrowserAttemptError(
+            f"Could not launch "
+            f"{browser_name}: "
+            f"{error}"
+        )
+
+
+    context = None
+
+    page = None
+
+
+    try:
+
+        context = (
+            browser
+            .new_context(
+                locale="en-US",
+
+                viewport={
+                    "width": 1440,
+                    "height": 1100,
+                },
+            )
+        )
+
+
+        page = (
+            context
+            .new_page()
+        )
+
+
+        page.set_default_timeout(
+            PAGE_TIMEOUT_MS
+        )
+
+
+        restriction_events = []
+
+
+        attach_network_monitor(
+            page,
+            restriction_events,
+        )
+
+
+        last_error = None
+
+
+        for attempt in range(
+            1,
+            OPEN_RETRIES + 1,
+        ):
+
+            try:
+
+                print(
+                    f"[{SOURCE_NAME}] "
+                    f"Opening website "
+                    f"attempt "
+                    f"{attempt}/"
+                    f"{OPEN_RETRIES}..."
+                )
+
+
+                response = (
+                    page.goto(
+                        START_URL,
+
+                        wait_until=
+                            "domcontentloaded",
+
+                        timeout=
+                            PAGE_TIMEOUT_MS,
+                    )
+                )
+
+
+                if (
+                    response
+                    and
+                    response.status
+                    in (
+                        403,
+                        429,
+                    )
+                ):
+
+                    raise SiteRestrictedError(
+                        "Bahrain main page "
+                        f"returned "
+                        f"HTTP "
+                        f"{response.status}"
+                    )
+
+
+                if (
+                    response
+                    and
+                    response.status
+                    >= 400
+                ):
+
+                    raise BrowserAttemptError(
+                        "Bahrain main page "
+                        f"returned "
+                        f"HTTP "
+                        f"{response.status}"
+                    )
+
+
+                check_network_restrictions(
+                    restriction_events
+                )
+
+
+                check_block(
+                    page
+                )
+
+
+                page.wait_for_selector(
+                    (
+                        "#cphBaseBody_"
+                        "CphInnerBody_"
+                        "TenderDetailsBlock"
+                    ),
+
+                    state="attached",
+
+                    timeout=
+                        PAGE_TIMEOUT_MS,
+                )
+
+
+                page.wait_for_selector(
+                    (
+                        'button['
+                        'onclick*="'
+                        'fnGetCurrentPublicTender'
+                        '"]'
+                    ),
+
+                    state="attached",
+
+                    timeout=
+                        PAGE_TIMEOUT_MS,
+                )
+
+
+                page.wait_for_timeout(
+                    4_000
+                )
+
+
+                check_network_restrictions(
+                    restriction_events
+                )
+
+
+                rows = discover_rows(
+                    page
+                )
+
+
+                if rows:
+
+                    print(
+                        f"[{SOURCE_NAME}] "
+                        "Tender rows loaded "
+                        "automatically."
+                    )
+
+
+                    return (
+                        browser,
+                        context,
+                        page,
+                        restriction_events,
+                    )
+
+
+                print(
+                    f"[{SOURCE_NAME}] "
+                    "Clicking Search..."
+                )
+
+
+                search_button = (
+                    page.locator(
+                        (
+                            'button['
+                            'onclick*="'
+                            'fnGetCurrentPublicTender'
+                            '"]'
+                        )
+                    )
+                    .first
+                )
+
+
+                search_button.click(
+                    timeout=15_000
+                )
+
+
+                wait_for_rows(
+                    page,
+                    restriction_events,
+                    seconds=35,
+                )
+
+
+                print(
+                    f"[{SOURCE_NAME}] "
+                    f"{browser_name} "
+                    "loaded tender rows."
+                )
+
+
+                return (
+                    browser,
+                    context,
+                    page,
+                    restriction_events,
+                )
+
+
+            except SiteRestrictedError:
+
+                raise
+
+
+            except Exception as error:
+
+                last_error = error
+
+
+                print(
+                    f"[{SOURCE_NAME}] "
+                    f"{browser_name} "
+                    f"attempt failed: "
+                    f"{error}"
+                )
+
+
+                if (
+                    attempt
+                    <
+                    OPEN_RETRIES
+                ):
+
+                    page.wait_for_timeout(
+                        3_000
+                    )
+
+
+        raise BrowserAttemptError(
+            f"{browser_name} failed "
+            f"after "
+            f"{OPEN_RETRIES} attempts: "
+            f"{last_error}"
         )
 
 
     except Exception:
 
-        browser = (
-            playwright
-            .chromium
-            .launch(
-                headless=False,
+        if context:
+
+            try:
+
+                context.close()
+
+            except Exception:
+
+                pass
+
+
+        try:
+
+            browser.close()
+
+        except Exception:
+
+            pass
+
+
+        raise
+
+
+# ============================================================
+# GET FIRST WORKING BROWSER
+# ============================================================
+
+def get_working_browser(
+    playwright,
+):
+
+    browsers = [
+        "Google Chrome",
+        "Chromium",
+        "Firefox",
+        "WebKit",
+    ]
+
+
+    browser_errors = []
+
+
+    for browser_name in browsers:
+
+        try:
+
+            return open_site_with_browser(
+                playwright,
+                browser_name,
             )
-        )
 
 
-        print(
-            f"[{SOURCE_NAME}] "
-            "Google Chrome channel was unavailable; "
-            "using Playwright Chromium."
-        )
+        except SiteRestrictedError:
+
+            # IMPORTANT:
+            # إذا الموقع نفسه منع الوصول،
+            # ما نبدل متصفحات لمحاولة تجاوز الحماية.
+
+            raise
 
 
-    context = (
-        browser
-        .new_context(
-            locale="en-US",
+        except BrowserAttemptError as error:
 
-            viewport={
-                "width": 1440,
-                "height": 1100,
-            },
-        )
-    )
+            browser_errors.append(
+                (
+                    browser_name,
+                    str(error),
+                )
+            )
 
 
-    page = (
-        context
-        .new_page()
-    )
-
-
-    page.set_default_timeout(
-        PAGE_TIMEOUT_MS
-    )
+            print(
+                f"[{SOURCE_NAME}] "
+                f"Moving to next browser."
+            )
 
 
     print(
-        f"[{SOURCE_NAME}] "
-        "Opening website..."
+        "\n"
+        +
+        "=" * 60
     )
-
-
-    response = (
-        page.goto(
-            START_URL,
-
-            wait_until=
-                "domcontentloaded",
-
-            timeout=
-                PAGE_TIMEOUT_MS,
-        )
-    )
-
-
-    if (
-        response
-        and
-        response.status
-        >= 400
-    ):
-
-        raise RuntimeError(
-            "Bahrain main page returned "
-            f"HTTP {response.status}."
-        )
-
-
-    check_block(
-        page
-    )
-
-
-    # --------------------------------------------------------
-    # Wait until public page elements exist
-    # --------------------------------------------------------
-
-    page.wait_for_selector(
-        "#cphBaseBody_CphInnerBody_TenderDetailsBlock",
-        state="attached",
-        timeout=PAGE_TIMEOUT_MS,
-    )
-
-
-    page.wait_for_selector(
-        'button[onclick*="fnGetCurrentPublicTender"]',
-        state="attached",
-        timeout=PAGE_TIMEOUT_MS,
-    )
-
-
-    # خلي الصفحة تكمل تحميل JS
-    page.wait_for_timeout(
-        4_000
-    )
-
-
-    # --------------------------------------------------------
-    # Maybe results loaded automatically.
-    # --------------------------------------------------------
-
-    rows = discover_rows(
-        page
-    )
-
-
-    if rows:
-
-        print(
-            f"[{SOURCE_NAME}] "
-            "Tender rows loaded automatically."
-        )
-
-        return (
-            browser,
-            context,
-            page,
-        )
-
-
-    # --------------------------------------------------------
-    # Otherwise click Search like a normal user.
-    # --------------------------------------------------------
 
     print(
-        f"[{SOURCE_NAME}] "
-        "Clicking Search..."
+        "BROWSER ATTEMPT SUMMARY"
+    )
+
+    print(
+        "=" * 60
     )
 
 
-    search_button = (
-        page.locator(
-            'button[onclick*="fnGetCurrentPublicTender"]'
+    for (
+        browser_name,
+        error,
+    ) in browser_errors:
+
+        print(
+            f"{browser_name}: "
+            f"{error}"
         )
-        .first
-    )
 
 
-    search_button.click(
-        timeout=15_000
-    )
-
-
-    # --------------------------------------------------------
-    # Wait for site itself to load results.
-    # --------------------------------------------------------
-
-    wait_for_rows(
-        page,
-        seconds=35,
-    )
-
-
-    return (
-        browser,
-        context,
-        page,
+    raise RuntimeError(
+        "No installed Playwright browser "
+        "could load Bahrain tender rows."
     )
 
 
 # ============================================================
-# MAIN
+# RUN
 # ============================================================
 
 def run():
 
-    existing = (
-        load_existing()
-    )
+    existing = load_existing()
 
 
     seen = {
@@ -1644,7 +2021,9 @@ def run():
     with sync_playwright() as playwright:
 
         browser = None
+
         context = None
+
         page = None
 
 
@@ -1654,8 +2033,15 @@ def run():
                 browser,
                 context,
                 page,
-            ) = open_and_load_results(
+                restriction_events,
+            ) = get_working_browser(
                 playwright
+            )
+
+
+            print(
+                f"[{SOURCE_NAME}] "
+                "Browser selected successfully."
             )
 
 
@@ -1669,17 +2055,21 @@ def run():
             ):
 
                 print(
-                    f"[{SOURCE_NAME}] "
+                    f"\n[{SOURCE_NAME}] "
                     f"Reading page "
                     f"{page_number}..."
                 )
 
 
-                records = (
-                    extract_page(
-                        page,
-                        page_number,
-                    )
+                check_network_restrictions(
+                    restriction_events
+                )
+
+
+                records = extract_page(
+                    page,
+                    page_number,
+                    restriction_events,
                 )
 
 
@@ -1694,14 +2084,14 @@ def run():
 
                     raise RuntimeError(
                         "No valid Bahrain records "
-                        f"on page {page_number}."
+                        f"on page "
+                        f"{page_number}."
                     )
 
 
                 if (
                     current_fingerprint
-                    in
-                    seen_pages
+                    in seen_pages
                 ):
 
                     print(
@@ -1772,23 +2162,53 @@ def run():
 
                 print(
                     f"[{SOURCE_NAME}] "
-                    f"Page {page_number}: "
-                    f"rows={len(records)} | "
-                    f"new={page_new} | "
+                    f"Page "
+                    f"{page_number}: "
+                    f"rows="
+                    f"{len(records)} | "
+                    f"new="
+                    f"{page_new} | "
                     f"duplicates="
                     f"{page_duplicates}"
                 )
 
 
-                # ------------------------------------------------
-                # NEXT PAGE
-                # ------------------------------------------------
+                if (
+                    page_number
+                    >=
+                    MAX_PAGES
+                ):
 
-                if not next_page(
+                    print(
+                        f"[{SOURCE_NAME}] "
+                        "Reached max pages: "
+                        f"{MAX_PAGES}"
+                    )
+
+                    break
+
+
+                print(
+                    f"[{SOURCE_NAME}] "
+                    "Waiting before "
+                    "next page..."
+                )
+
+
+                page.wait_for_timeout(
+                    PAGE_DELAY_MS
+                )
+
+
+                moved = next_page(
                     page,
                     page_number,
                     current_fingerprint,
-                ):
+                    restriction_events,
+                )
+
+
+                if not moved:
 
                     print(
                         f"[{SOURCE_NAME}] "
@@ -1800,20 +2220,6 @@ def run():
 
 
                 page_number += 1
-
-
-                # small delay
-                page.wait_for_timeout(
-                    500
-                )
-
-
-            else:
-
-                raise RuntimeError(
-                    "Bahrain pagination "
-                    "safety limit reached."
-                )
 
 
         finally:
@@ -1839,10 +2245,6 @@ def run():
 
                     pass
 
-
-    # ========================================================
-    # SUMMARY
-    # ========================================================
 
     print(
         "\n"
@@ -1912,6 +2314,38 @@ if __name__ == "__main__":
 
         sys.exit(
             130
+        )
+
+
+    except SiteRestrictedError as error:
+
+        print(
+            "\n"
+            +
+            "=" * 60
+        )
+
+        print(
+            f"[{SOURCE_NAME}] "
+            "ACCESS RESTRICTED"
+        )
+
+        print(
+            str(error)
+        )
+
+        print(
+            "The script will not rotate "
+            "browsers after a confirmed "
+            "403 / 429 / CAPTCHA."
+        )
+
+        print(
+            "=" * 60
+        )
+
+        sys.exit(
+            1
         )
 
 
