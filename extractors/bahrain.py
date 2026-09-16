@@ -17,12 +17,21 @@ from playwright.sync_api import (
 )
 
 
+# ============================================================
+# SOURCE SETTINGS
+# ============================================================
+
 SOURCE_NAME = "bahrain_tender_board"
 
 START_URL = (
     "https://www.tenderboard.gov.bh/"
     "Tenders/PublicTenders/"
 )
+
+
+# ============================================================
+# PROJECT PATHS
+# ============================================================
 
 PROJECT_ROOT = (
     Path(__file__)
@@ -44,9 +53,19 @@ DEBUG_DIR = (
     / "debug"
 )
 
+
+# ============================================================
+# SETTINGS
+# ============================================================
+
 PAGE_TIMEOUT_MS = 60_000
+
 MAX_PAGES = 500
 
+
+# ============================================================
+# REGEX
+# ============================================================
 
 DATE_RE = re.compile(
     r"\b\d{1,2}\s*,?\s*"
@@ -56,9 +75,13 @@ DATE_RE = re.compile(
 
 TYPE_RE = re.compile(
     r"\b(Internal|External)\b",
-    re.IGNORECASE
+    re.IGNORECASE,
 )
 
+
+# ============================================================
+# BLOCK / CAPTCHA WORDS
+# ============================================================
 
 BLOCK_MARKERS = [
     "captcha",
@@ -70,16 +93,27 @@ BLOCK_MARKERS = [
 ]
 
 
+# ============================================================
+# CLEAN TEXT
+# ============================================================
+
 def clean(value):
+
     return " ".join(
         str(value or "").split()
     )
 
 
+# ============================================================
+# LOAD EXISTING JSON
+# ============================================================
+
 def load_existing():
 
     if not OUTPUT_FILE.exists():
+
         return []
+
 
     data = json.loads(
         OUTPUT_FILE.read_text(
@@ -87,24 +121,32 @@ def load_existing():
         )
     )
 
+
     if not isinstance(
         data,
         list
     ):
+
         raise RuntimeError(
             "bahrain.json must contain "
-            "a JSON list"
+            "a JSON list."
         )
+
 
     return data
 
+
+# ============================================================
+# SAVE JSON SAFELY
+# ============================================================
 
 def save_atomic(records):
 
     OUTPUT_FILE.parent.mkdir(
         parents=True,
-        exist_ok=True
+        exist_ok=True,
     )
+
 
     temp_file = (
         OUTPUT_FILE
@@ -113,21 +155,29 @@ def save_atomic(records):
         )
     )
 
+
     temp_file.write_text(
         json.dumps(
             records,
             ensure_ascii=False,
-            indent=2
+            indent=2,
         ),
         encoding="utf-8",
     )
+
 
     temp_file.replace(
         OUTPUT_FILE
     )
 
 
+# ============================================================
+# UNIQUE KEY
+# ============================================================
+
 def record_key(record):
+
+    # Bahrain Detail URL is the most stable key.
 
     return clean(
         record.get(
@@ -144,6 +194,61 @@ def record_key(record):
     )
 
 
+# ============================================================
+# SAVE DEBUG FILES
+# ============================================================
+
+def save_debug(
+    page,
+    name
+):
+
+    DEBUG_DIR.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+
+    try:
+
+        html_file = (
+            DEBUG_DIR
+            / f"{name}.html"
+        )
+
+        html_file.write_text(
+            page.content(),
+            encoding="utf-8",
+        )
+
+    except Exception:
+
+        pass
+
+
+    try:
+
+        screenshot_file = (
+            DEBUG_DIR
+            / f"{name}.png"
+        )
+
+        page.screenshot(
+            path=str(
+                screenshot_file
+            ),
+            full_page=True,
+        )
+
+    except Exception:
+
+        pass
+
+
+# ============================================================
+# CHECK BLOCK / CAPTCHA
+# ============================================================
+
 def check_block(page):
 
     try:
@@ -158,55 +263,28 @@ def check_block(page):
         )
 
     except Exception:
+
         return
+
 
     for marker in BLOCK_MARKERS:
 
         if marker in text:
 
+            save_debug(
+                page,
+                "bahrain_possible_block"
+            )
+
             raise RuntimeError(
-                f"Possible block/"
-                f"CAPTCHA detected: "
-                f"{marker}"
+                "Possible block/CAPTCHA "
+                f"detected: {marker}"
             )
 
 
-def save_debug(
-    page,
-    name
-):
-
-    DEBUG_DIR.mkdir(
-        parents=True,
-        exist_ok=True
-    )
-
-    try:
-
-        (
-            DEBUG_DIR
-            / f"{name}.html"
-        ).write_text(
-            page.content(),
-            encoding="utf-8"
-        )
-
-    except Exception:
-        pass
-
-    try:
-
-        page.screenshot(
-            path=str(
-                DEBUG_DIR
-                / f"{name}.png"
-            ),
-            full_page=True
-        )
-
-    except Exception:
-        pass
-
+# ============================================================
+# DISCOVER TENDER ROWS
+# ============================================================
 
 def discover_rows(page):
 
@@ -214,148 +292,211 @@ def discover_rows(page):
         r"""
         () => {
 
-          const clean = s =>
-            (s || '')
-            .replace(/\s+/g, ' ')
-            .trim();
-
-          const dateRe =
-            /\b\d{1,2}\s*,?\s*[A-Za-z]{3}\s*,?\s*\d{4}\b/g;
-
-          const typeRe =
-            /\b(Internal|External)\b/i;
+            const clean = s =>
+                (s || '')
+                .replace(/\s+/g, ' ')
+                .trim();
 
 
-          const isRow = el => {
-
-            const text =
-              clean(el.innerText);
-
-            if (!text)
-              return false;
-
-            if (text.length > 3500)
-              return false;
-
-            const dates =
-              text.match(dateRe) || [];
-
-            return (
-              dates.length >= 3
-              &&
-              typeRe.test(text)
-            );
-          };
+            const dateRe =
+                /\b\d{1,2}\s*,?\s*[A-Za-z]{3}\s*,?\s*\d{4}\b/g;
 
 
-          let candidates =
-            Array.from(
-              document.querySelectorAll(
-                'tr, .row, .card, [class*="tender" i]'
-              )
-            )
-            .filter(isRow);
+            const typeRe =
+                /\b(Internal|External)\b/i;
 
 
-          candidates =
-            candidates.filter(
-              el =>
-                !Array
-                .from(el.children || [])
-                .some(isRow)
-            );
+            const isTenderRow = el => {
+
+                const text =
+                    clean(
+                        el.innerText
+                    );
 
 
-          if (!candidates.length) {
+                if (!text)
+                    return false;
 
-            candidates =
-              Array
-              .from(
-                document.querySelectorAll(
-                  'body *'
+
+                if (
+                    text.length > 3500
                 )
-              )
-              .filter(el => {
+                    return false;
 
-                const children =
-                  (el.children || []).length;
+
+                const dates =
+                    text.match(
+                        dateRe
+                    ) || [];
+
+
+                const detailLink =
+                    el.querySelector(
+                        'a[href*="TenderDetails" i]'
+                    );
+
 
                 return (
-                  children >= 4
-                  &&
-                  children <= 12
-                  &&
-                  isRow(el)
+                    dates.length >= 3
+                    &&
+                    typeRe.test(text)
+                    &&
+                    !!detailLink
                 );
-              })
-              .filter(
-                el =>
-                  !Array
-                  .from(el.children || [])
-                  .some(isRow)
-              );
-          }
+            };
 
 
-          return candidates.map(
-            el => {
-
-              const link =
-                el.querySelector(
-                  'a[href*="TenderDetails" i]'
+            let candidates =
+                Array.from(
+                    document.querySelectorAll(
+                        '#cphBaseBody_CphInnerBody_TenderDetailsBlock tr, ' +
+                        '#cphBaseBody_CphInnerBody_TenderDetailsBlock .row, ' +
+                        '#cphBaseBody_CphInnerBody_TenderDetailsBlock .card, ' +
+                        '#cphBaseBody_CphInnerBody_TenderDetailsBlock [class*="tender" i]'
+                    )
+                )
+                .filter(
+                    isTenderRow
                 );
 
-              return {
 
-                text:
-                  clean(el.innerText),
+            // إذا structure الموقع تغير شوي،
+            // نجرب كل العناصر داخل tender block.
 
-                parts:
-                  Array
-                  .from(el.children || [])
-                  .map(
-                    x =>
-                      clean(x.innerText)
-                  )
-                  .filter(Boolean),
+            if (!candidates.length) {
 
-                linkText:
-                  link
-                    ? clean(link.innerText)
-                    : '',
-
-                href:
-                  link
-                    ? (
-                        link.getAttribute(
-                          'href'
+                candidates =
+                    Array
+                    .from(
+                        document.querySelectorAll(
+                            '#cphBaseBody_CphInnerBody_TenderDetailsBlock *'
                         )
-                        || ''
-                      )
-                    : ''
-              };
+                    )
+                    .filter(
+                        el => {
+
+                            const children =
+                                (
+                                    el.children
+                                    || []
+                                )
+                                .length;
+
+
+                            return (
+                                children >= 4
+                                &&
+                                children <= 15
+                                &&
+                                isTenderRow(el)
+                            );
+                        }
+                    );
             }
-          );
+
+
+            // نشيل parent elements
+            // لو كان داخلها نفس tender row.
+
+            candidates =
+                candidates.filter(
+                    el =>
+                        !Array
+                        .from(
+                            el.children
+                            || []
+                        )
+                        .some(
+                            child =>
+                                isTenderRow(child)
+                        )
+                );
+
+
+            return candidates.map(
+                el => {
+
+                    const link =
+                        el.querySelector(
+                            'a[href*="TenderDetails" i]'
+                        );
+
+
+                    return {
+
+                        text:
+                            clean(
+                                el.innerText
+                            ),
+
+                        parts:
+                            Array
+                            .from(
+                                el.children
+                                || []
+                            )
+                            .map(
+                                x =>
+                                    clean(
+                                        x.innerText
+                                    )
+                            )
+                            .filter(
+                                Boolean
+                            ),
+
+                        linkText:
+                            link
+                                ?
+                                clean(
+                                    link.innerText
+                                )
+                                :
+                                '',
+
+                        href:
+                            link
+                                ?
+                                (
+                                    link.getAttribute(
+                                        'href'
+                                    )
+                                    || ''
+                                )
+                                :
+                                ''
+                    };
+                }
+            );
         }
         """
     )
 
+
     unique = []
+
     seen = set()
+
 
     for row in rows:
 
         signature = clean(
-            row.get("href")
+            row.get(
+                "href"
+            )
             or
-            row.get("text")
+            row.get(
+                "text"
+            )
         )
+
 
         if (
             signature
             and
             signature not in seen
         ):
+
             seen.add(
                 signature
             )
@@ -364,48 +505,118 @@ def discover_rows(page):
                 row
             )
 
+
     return unique
 
 
-def wait_rows(page):
+# ============================================================
+# WAIT FOR TENDER ROWS
+# ============================================================
+
+def wait_for_rows(
+    page,
+    seconds=30,
+):
 
     end_time = (
         time.time()
         +
-        PAGE_TIMEOUT_MS / 1000
+        seconds
     )
 
-    while time.time() < end_time:
 
-        check_block(page)
+    while (
+        time.time()
+        <
+        end_time
+    ):
+
+        check_block(
+            page
+        )
+
 
         rows = discover_rows(
             page
         )
 
+
         if rows:
+
             return rows
+
+
+        # Check whether Bahrain showed its error modal.
+
+        try:
+
+            modal = (
+                page.locator(
+                    "#myModal"
+                )
+            )
+
+
+            if (
+                modal.count()
+                and
+                modal.is_visible()
+            ):
+
+                modal_text = clean(
+                    modal.inner_text()
+                )
+
+
+                save_debug(
+                    page,
+                    "bahrain_modal_error"
+                )
+
+
+                raise RuntimeError(
+                    "Bahrain website displayed "
+                    f"an error popup: {modal_text}"
+                )
+
+        except RuntimeError:
+
+            raise
+
+        except Exception:
+
+            pass
+
 
         page.wait_for_timeout(
             500
         )
+
 
     save_debug(
         page,
         "bahrain_rows_not_found"
     )
 
+
     raise RuntimeError(
-        "No Bahrain tender rows found."
+        "No Bahrain tender rows "
+        "loaded after waiting."
     )
 
+
+# ============================================================
+# TENDER NUMBER FROM DETAIL URL
+# ============================================================
 
 def tender_number_from_url(
     detail_url
 ):
 
     if not detail_url:
+
         return ""
+
 
     try:
 
@@ -415,45 +626,61 @@ def tender_number_from_url(
             ).query
         )
 
+
         id_value = clean(
             query.get(
                 "id",
-                [""]
+                [""],
             )[0]
         )
 
+
         match = re.search(
             r"\((.*)\)\s*$",
-            id_value
+            id_value,
         )
+
 
         if match:
 
             return clean(
-                match.group(1)
+                match.group(
+                    1
+                )
             )
 
+
     except Exception:
+
         pass
+
 
     return ""
 
 
+# ============================================================
+# REMOVE TENDER NUMBER FROM SUBJECT
+# ============================================================
+
 def remove_number_from_subject(
     raw_subject,
-    tender_number
+    tender_number,
 ):
 
     raw_subject = clean(
         raw_subject
     )
 
+
     tender_number = clean(
         tender_number
     )
 
+
     if not tender_number:
+
         return raw_subject
+
 
     if raw_subject.startswith(
         tender_number
@@ -461,29 +688,42 @@ def remove_number_from_subject(
 
         return clean(
             raw_subject[
-                len(tender_number):
+                len(
+                    tender_number
+                ):
             ]
         )
+
 
     return raw_subject
 
 
+# ============================================================
+# PARSE ONE ROW
+# ============================================================
+
 def parse_row(
     row,
-    page_number
+    page_number,
 ):
 
     parts = [
-        clean(x)
 
-        for x
-        in row.get(
-            "parts",
-            []
+        clean(
+            value
         )
 
-        if clean(x)
+        for value
+        in row.get(
+            "parts",
+            [],
+        )
+
+        if clean(
+            value
+        )
     ]
+
 
     full_text = clean(
         row.get(
@@ -491,7 +731,13 @@ def parse_row(
         )
     )
 
+
+    # --------------------------------------------------------
+    # ROW NUMBER
+    # --------------------------------------------------------
+
     row_number = ""
+
 
     if (
         parts
@@ -500,35 +746,68 @@ def parse_row(
     ):
 
         row_number = (
-            parts.pop(0)
+            parts.pop(
+                0
+            )
         )
 
+
+    # --------------------------------------------------------
+    # TENDER TYPE
+    # --------------------------------------------------------
+
     tender_type = ""
+
     type_index = None
 
-    for index, part in enumerate(
+
+    for (
+        index,
+        part
+    ) in enumerate(
         parts
     ):
 
-        match = TYPE_RE.fullmatch(
-            part
+        match = (
+            TYPE_RE
+            .fullmatch(
+                part
+            )
         )
+
 
         if match:
 
-            type_index = index
+            type_index = (
+                index
+            )
 
             tender_type = (
                 match
-                .group(1)
+                .group(
+                    1
+                )
                 .title()
             )
 
             break
 
-    dates = DATE_RE.findall(
-        full_text
+
+    # --------------------------------------------------------
+    # DATES
+    # --------------------------------------------------------
+
+    dates = (
+        DATE_RE
+        .findall(
+            full_text
+        )
     )
+
+
+    # --------------------------------------------------------
+    # SUBJECT
+    # --------------------------------------------------------
 
     raw_subject = clean(
         row.get(
@@ -536,26 +815,41 @@ def parse_row(
         )
     )
 
+
+    # --------------------------------------------------------
+    # PURCHASING AUTHORITY
+    # --------------------------------------------------------
+
     authority = ""
 
-    if type_index is not None:
+
+    if (
+        type_index
+        is not None
+    ):
 
         before_type = [
+
             value
 
             for value
-            in parts[:type_index]
+            in parts[
+                :type_index
+            ]
 
             if not DATE_RE.search(
                 value
             )
         ]
 
+
         after_type = (
+
             parts[
                 type_index + 1:
             ]
         )
+
 
         if (
             before_type
@@ -564,23 +858,38 @@ def parse_row(
         ):
 
             raw_subject = (
-                before_type[-1]
+                before_type[
+                    -1
+                ]
             )
+
 
         for value in after_type:
 
             if DATE_RE.search(
                 value
             ):
+
                 continue
+
 
             if TYPE_RE.fullmatch(
                 value
             ):
+
                 continue
 
-            authority = value
+
+            authority = (
+                value
+            )
+
             break
+
+
+    # --------------------------------------------------------
+    # DETAIL URL
+    # --------------------------------------------------------
 
     href = clean(
         row.get(
@@ -588,28 +897,42 @@ def parse_row(
         )
     )
 
+
     detail_url = (
+
         urljoin(
             START_URL,
-            href
+            href,
         )
+
         if href
+
         else ""
     )
 
-    # الرقم الحقيقي نأخذه من الرابط.
+
+    # --------------------------------------------------------
+    # TENDER NUMBER
+    # --------------------------------------------------------
+
     tender_number = (
         tender_number_from_url(
             detail_url
         )
     )
 
+
     tender_subject = (
         remove_number_from_subject(
             raw_subject,
-            tender_number
+            tender_number,
         )
     )
+
+
+    # --------------------------------------------------------
+    # FINAL RECORD
+    # --------------------------------------------------------
 
     return {
 
@@ -632,25 +955,37 @@ def parse_row(
             authority,
 
         "Published Date":
-            clean(
-                dates[0]
-            )
-            if len(dates) > 0
-            else "",
+            (
+                clean(
+                    dates[0]
+                )
+                if len(
+                    dates
+                ) > 0
+                else ""
+            ),
 
         "Purchase Before":
-            clean(
-                dates[1]
-            )
-            if len(dates) > 1
-            else "",
+            (
+                clean(
+                    dates[1]
+                )
+                if len(
+                    dates
+                ) > 1
+                else ""
+            ),
 
         "Closing Date":
-            clean(
-                dates[2]
-            )
-            if len(dates) > 2
-            else "",
+            (
+                clean(
+                    dates[2]
+                )
+                if len(
+                    dates
+                ) > 2
+                else ""
+            ),
 
         "Detail URL":
             detail_url,
@@ -663,24 +998,33 @@ def parse_row(
 
         "_extracted_at":
             datetime
-            .now(timezone.utc)
+            .now(
+                timezone.utc
+            )
             .isoformat(),
     }
 
 
+# ============================================================
+# GET PAGE RECORDS
+# ============================================================
+
 def extract_page(
     page,
-    page_number
+    page_number,
 ):
 
-    rows = wait_rows(
-        page
+    rows = wait_for_rows(
+        page,
+        seconds=30,
     )
 
+
     return [
+
         parse_row(
             row,
-            page_number
+            page_number,
         )
 
         for row
@@ -688,13 +1032,24 @@ def extract_page(
     ]
 
 
-def fingerprint(records):
+# ============================================================
+# FINGERPRINT
+# ============================================================
+
+def fingerprint(
+    records
+):
 
     return tuple(
-        record_key(record)
+
+        record_key(
+            record
+        )
 
         for record
-        in records[:5]
+        in records[
+            :5
+        ]
 
         if record_key(
             record
@@ -702,87 +1057,33 @@ def fingerprint(records):
     )
 
 
-def in_pager(element):
+# ============================================================
+# FIND PAGE NUMBER BUTTON
+# ============================================================
 
-    try:
-
-        return bool(
-            element.evaluate(
-                r"""
-                el => {
-
-                  let node = el;
-
-                  for (
-                    let i = 0;
-                    i < 7 && node;
-                    i++,
-                    node = node.parentElement
-                  ) {
-
-                    const cls =
-                      String(
-                        node.className || ''
-                      )
-                      .toLowerCase();
-
-                    const text =
-                      (
-                        node.innerText || ''
-                      )
-                      .replace(
-                        /\s+/g,
-                        ' '
-                      )
-                      .trim();
-
-                    if (
-                      cls.includes(
-                        'pagination'
-                      )
-                      ||
-                      cls.includes(
-                        'pager'
-                      )
-                      ||
-                      /\bNext\b/i.test(text)
-                      ||
-                      /\bLast\b/i.test(text)
-                    ) {
-                      return true;
-                    }
-                  }
-
-                  return false;
-                }
-                """
-            )
-        )
-
-    except Exception:
-        return False
-
-
-def find_number(
+def find_page_number(
     page,
-    number
+    number,
 ):
 
     exact = re.compile(
         rf"^\s*{number}\s*$"
     )
 
+
     candidates = [
+
         page.get_by_role(
             "link",
-            name=exact
+            name=exact,
         ),
 
         page.get_by_role(
             "button",
-            name=exact
+            name=exact,
         ),
     ]
+
 
     for locator in candidates:
 
@@ -794,53 +1095,47 @@ def find_number(
                 index
             )
 
+
             try:
 
-                if (
-                    item.is_visible()
-                    and
-                    in_pager(item)
-                ):
+                if item.is_visible():
 
                     return item
 
             except Exception:
+
                 pass
+
 
     return None
 
+
+# ============================================================
+# FIND NEXT BUTTON
+# ============================================================
 
 def find_next(page):
 
-    exact = re.compile(
-        r"^\s*Next\s*$",
-        re.IGNORECASE
-    )
-
     candidates = [
-        page.get_by_role(
-            "link",
-            name=exact
-        ),
 
-        page.get_by_role(
-            "button",
-            name=exact
+        page.locator(
+            "ul.DoctorHolder "
+            "a"
         ),
 
         page.locator(
-            'a[rel="next"], '
-            'a[aria-label*="Next" i], '
+            'a[rel="next"]'
+        ),
+
+        page.locator(
+            'a[aria-label*="Next" i]'
+        ),
+
+        page.locator(
             'button[aria-label*="Next" i]'
         ),
-
-        page.locator(
-            "li.next a, "
-            "li.next button, "
-            ".next a, "
-            ".next button"
-        ),
     ]
+
 
     for locator in candidates:
 
@@ -848,27 +1143,48 @@ def find_next(page):
             locator.count()
         ):
 
-            item = locator.nth(
-                index
+            item = (
+                locator.nth(
+                    index
+                )
             )
 
+
             try:
+
+                text = clean(
+                    item.inner_text()
+                )
+
 
                 if (
                     item.is_visible()
                     and
-                    in_pager(item)
+                    (
+                        text.lower()
+                        ==
+                        "next"
+                        or
+                        "next"
+                        in text.lower()
+                    )
                 ):
 
                     return item
 
             except Exception:
+
                 pass
+
 
     return None
 
 
-def disabled(element):
+# ============================================================
+# DISABLED?
+# ============================================================
+
+def is_disabled(element):
 
     try:
 
@@ -887,17 +1203,15 @@ def disabled(element):
                             'aria-disabled'
                         )
                         || ''
-                    )
-                    .toLowerCase()
+                    ).toLowerCase()
                     === 'true'
                     ||
-                    el.classList
-                    .contains(
+                    el.classList.contains(
                         'disabled'
                     )
                     ||
                     !!el.closest(
-                        '.disabled,'
+                        '.disabled, '
                         '[aria-disabled="true"]'
                     )
                 """
@@ -905,13 +1219,18 @@ def disabled(element):
         )
 
     except Exception:
+
         return False
 
+
+# ============================================================
+# WAIT UNTIL PAGE CHANGES
+# ============================================================
 
 def wait_change(
     page,
     old_fingerprint,
-    seconds=20
+    seconds=20,
 ):
 
     end_time = (
@@ -920,56 +1239,92 @@ def wait_change(
         seconds
     )
 
-    while time.time() < end_time:
+
+    while (
+        time.time()
+        <
+        end_time
+    ):
 
         try:
 
-            new_records = (
-                extract_page(
-                    page,
-                    0
-                )
+            rows = discover_rows(
+                page
             )
 
-            new_fingerprint = (
-                fingerprint(
-                    new_records
+
+            if rows:
+
+                new_records = [
+
+                    parse_row(
+                        row,
+                        0,
+                    )
+
+                    for row
+                    in rows
+                ]
+
+
+                new_fingerprint = (
+                    fingerprint(
+                        new_records
+                    )
                 )
-            )
 
-            if (
-                new_fingerprint
-                and
-                new_fingerprint
-                != old_fingerprint
-            ):
 
-                return True
+                if (
+                    new_fingerprint
+                    and
+                    new_fingerprint
+                    != old_fingerprint
+                ):
+
+                    return True
+
 
         except Exception:
+
             pass
+
 
         page.wait_for_timeout(
             350
         )
 
+
     return False
 
+
+# ============================================================
+# MOVE TO NEXT PAGE
+# ============================================================
 
 def next_page(
     page,
     current_page,
-    old_fingerprint
+    old_fingerprint,
 ):
 
     target_number = (
-        current_page + 1
+        current_page
+        +
+        1
     )
 
-    target = find_number(
-        page,
-        target_number
+
+    # --------------------------------------------------------
+    # Try exact next page number
+    # --------------------------------------------------------
+
+    target = (
+        find_page_number(
+            page,
+            target_number,
+        )
     )
+
 
     if target:
 
@@ -977,82 +1332,273 @@ def next_page(
             timeout=15_000
         )
 
+
         if wait_change(
             page,
-            old_fingerprint
+            old_fingerprint,
         ):
 
             return True
 
-        raise RuntimeError(
-            f"Clicked Bahrain page "
-            f"{target_number}, "
-            f"but rows did not change."
-        )
 
-    next_control = find_next(
-        page
+    # --------------------------------------------------------
+    # Try Next
+    # --------------------------------------------------------
+
+    next_control = (
+        find_next(
+            page
+        )
     )
+
 
     if (
         not next_control
         or
-        disabled(
+        is_disabled(
             next_control
         )
     ):
 
         return False
 
+
     next_control.click(
         timeout=15_000
     )
 
+
     if wait_change(
         page,
         old_fingerprint,
-        seconds=6
     ):
 
         return True
 
-    page.wait_for_timeout(
-        800
-    )
-
-    target = find_number(
-        page,
-        target_number
-    )
-
-    if target:
-
-        target.click(
-            timeout=15_000
-        )
-
-        if wait_change(
-            page,
-            old_fingerprint
-        ):
-
-            return True
 
     save_debug(
         page,
         (
-            f"bahrain_pagination_"
+            "bahrain_pagination_"
             f"after_{current_page}"
-        )
+        ),
     )
 
+
     raise RuntimeError(
-        f"Could not move from "
+        "Could not move from "
         f"Bahrain page "
         f"{current_page} "
         f"to {target_number}."
     )
 
+
+# ============================================================
+# OPEN WEBSITE AND LOAD RESULTS
+# ============================================================
+
+def open_and_load_results(
+    playwright,
+):
+
+    # --------------------------------------------------------
+    # Try installed Google Chrome first.
+    #
+    # We are NOT manually calling Bahrain's internal API.
+    # Chrome runs the public webpage's own JavaScript.
+    # --------------------------------------------------------
+
+    try:
+
+        browser = (
+            playwright
+            .chromium
+            .launch(
+                channel="chrome",
+
+                # نفتح المتصفح قدامك
+                # في آخر تجربة عشان نشوف
+                # هل الموقع يتعامل معه طبيعي.
+                headless=False,
+            )
+        )
+
+
+        print(
+            f"[{SOURCE_NAME}] "
+            "Using installed Google Chrome."
+        )
+
+
+    except Exception:
+
+        browser = (
+            playwright
+            .chromium
+            .launch(
+                headless=False,
+            )
+        )
+
+
+        print(
+            f"[{SOURCE_NAME}] "
+            "Google Chrome channel was unavailable; "
+            "using Playwright Chromium."
+        )
+
+
+    context = (
+        browser
+        .new_context(
+            locale="en-US",
+
+            viewport={
+                "width": 1440,
+                "height": 1100,
+            },
+        )
+    )
+
+
+    page = (
+        context
+        .new_page()
+    )
+
+
+    page.set_default_timeout(
+        PAGE_TIMEOUT_MS
+    )
+
+
+    print(
+        f"[{SOURCE_NAME}] "
+        "Opening website..."
+    )
+
+
+    response = (
+        page.goto(
+            START_URL,
+
+            wait_until=
+                "domcontentloaded",
+
+            timeout=
+                PAGE_TIMEOUT_MS,
+        )
+    )
+
+
+    if (
+        response
+        and
+        response.status
+        >= 400
+    ):
+
+        raise RuntimeError(
+            "Bahrain main page returned "
+            f"HTTP {response.status}."
+        )
+
+
+    check_block(
+        page
+    )
+
+
+    # --------------------------------------------------------
+    # Wait until public page elements exist
+    # --------------------------------------------------------
+
+    page.wait_for_selector(
+        "#cphBaseBody_CphInnerBody_TenderDetailsBlock",
+        state="attached",
+        timeout=PAGE_TIMEOUT_MS,
+    )
+
+
+    page.wait_for_selector(
+        'button[onclick*="fnGetCurrentPublicTender"]',
+        state="attached",
+        timeout=PAGE_TIMEOUT_MS,
+    )
+
+
+    # خلي الصفحة تكمل تحميل JS
+    page.wait_for_timeout(
+        4_000
+    )
+
+
+    # --------------------------------------------------------
+    # Maybe results loaded automatically.
+    # --------------------------------------------------------
+
+    rows = discover_rows(
+        page
+    )
+
+
+    if rows:
+
+        print(
+            f"[{SOURCE_NAME}] "
+            "Tender rows loaded automatically."
+        )
+
+        return (
+            browser,
+            context,
+            page,
+        )
+
+
+    # --------------------------------------------------------
+    # Otherwise click Search like a normal user.
+    # --------------------------------------------------------
+
+    print(
+        f"[{SOURCE_NAME}] "
+        "Clicking Search..."
+    )
+
+
+    search_button = (
+        page.locator(
+            'button[onclick*="fnGetCurrentPublicTender"]'
+        )
+        .first
+    )
+
+
+    search_button.click(
+        timeout=15_000
+    )
+
+
+    # --------------------------------------------------------
+    # Wait for site itself to load results.
+    # --------------------------------------------------------
+
+    wait_for_rows(
+        page,
+        seconds=35,
+    )
+
+
+    return (
+        browser,
+        context,
+        page,
+    )
+
+
+# ============================================================
+# MAIN
+# ============================================================
 
 def run():
 
@@ -1060,8 +1606,12 @@ def run():
         load_existing()
     )
 
+
     seen = {
-        record_key(record)
+
+        record_key(
+            record
+        )
 
         for record
         in existing
@@ -1071,13 +1621,18 @@ def run():
         )
     }
 
+
     stored = list(
         existing
     )
 
+
     seen_pages = set()
 
     added = 0
+
+    page_number = 0
+
 
     print(
         f"[{SOURCE_NAME}] "
@@ -1085,107 +1640,32 @@ def run():
         f"{len(existing)}"
     )
 
+
     with sync_playwright() as playwright:
 
-        browser = (
-            playwright
-            .chromium
-            .launch(
-                headless=True
-            )
-        )
+        browser = None
+        context = None
+        page = None
 
-        context = (
-            browser
-            .new_context(
-                locale="en-US",
-
-                viewport={
-                    "width": 1440,
-                    "height": 1100
-                },
-            )
-        )
-
-        page = (
-            context.new_page()
-        )
-
-        page.set_default_timeout(
-            PAGE_TIMEOUT_MS
-        )
 
         try:
 
-            last_error = None
+            (
+                browser,
+                context,
+                page,
+            ) = open_and_load_results(
+                playwright
+            )
 
-            for attempt in range(
-                1,
-                4
-            ):
-
-                try:
-
-                    print(
-                        f"[{SOURCE_NAME}] "
-                        f"Opening website "
-                        f"attempt "
-                        f"{attempt}/3..."
-                    )
-
-                    response = page.goto(
-                        START_URL,
-                        wait_until=
-                            "domcontentloaded",
-                        timeout=
-                            PAGE_TIMEOUT_MS
-                    )
-
-                    if (
-                        response
-                        and
-                        response.status
-                        >= 400
-                    ):
-
-                        raise RuntimeError(
-                            f"HTTP "
-                            f"{response.status}"
-                        )
-
-                    wait_rows(
-                        page
-                    )
-
-                    last_error = None
-
-                    break
-
-                except Exception as error:
-
-                    last_error = (
-                        error
-                    )
-
-                    if attempt < 3:
-
-                        page.wait_for_timeout(
-                            4_000
-                        )
-
-            if last_error:
-
-                raise RuntimeError(
-                    "Could not open "
-                    "Bahrain Tender Board: "
-                    f"{last_error}"
-                )
 
             page_number = 1
 
+
             while (
                 page_number
-                <= MAX_PAGES
+                <=
+                MAX_PAGES
             ):
 
                 print(
@@ -1194,12 +1674,14 @@ def run():
                     f"{page_number}..."
                 )
 
+
                 records = (
                     extract_page(
                         page,
-                        page_number
+                        page_number,
                     )
                 )
+
 
                 current_fingerprint = (
                     fingerprint(
@@ -1207,35 +1689,39 @@ def run():
                     )
                 )
 
+
                 if not current_fingerprint:
 
                     raise RuntimeError(
-                        f"No valid Bahrain "
-                        f"records on page "
-                        f"{page_number}."
+                        "No valid Bahrain records "
+                        f"on page {page_number}."
                     )
+
 
                 if (
                     current_fingerprint
-                    in seen_pages
+                    in
+                    seen_pages
                 ):
 
                     print(
                         f"[{SOURCE_NAME}] "
-                        "Repeated page "
-                        "detected; "
+                        "Repeated page detected; "
                         "stopping safely."
                     )
 
                     break
 
+
                 seen_pages.add(
                     current_fingerprint
                 )
 
+
                 page_new = 0
 
                 page_duplicates = 0
+
 
                 for record in records:
 
@@ -1245,24 +1731,33 @@ def run():
                         )
                     )
 
+
                     if not record_id:
+
                         continue
+
 
                     if record_id in seen:
 
                         page_duplicates += 1
+
                         continue
+
 
                     seen.add(
                         record_id
                     )
 
+
                     stored.append(
                         record
                     )
 
+
                     page_new += 1
+
                     added += 1
+
 
                 if (
                     page_new
@@ -1274,6 +1769,7 @@ def run():
                         stored
                     )
 
+
                 print(
                     f"[{SOURCE_NAME}] "
                     f"Page {page_number}: "
@@ -1283,22 +1779,34 @@ def run():
                     f"{page_duplicates}"
                 )
 
+
+                # ------------------------------------------------
+                # NEXT PAGE
+                # ------------------------------------------------
+
                 if not next_page(
                     page,
                     page_number,
-                    current_fingerprint
+                    current_fingerprint,
                 ):
 
                     print(
                         f"[{SOURCE_NAME}] "
-                        f"Reached final "
-                        f"page: "
+                        "Reached final page: "
                         f"{page_number}"
                     )
 
                     break
 
+
                 page_number += 1
+
+
+                # small delay
+                page.wait_for_timeout(
+                    500
+                )
+
 
             else:
 
@@ -1307,57 +1815,93 @@ def run():
                     "safety limit reached."
                 )
 
+
         finally:
 
-            context.close()
+            if context:
 
-            browser.close()
+                try:
+
+                    context.close()
+
+                except Exception:
+
+                    pass
+
+
+            if browser:
+
+                try:
+
+                    browser.close()
+
+                except Exception:
+
+                    pass
+
+
+    # ========================================================
+    # SUMMARY
+    # ========================================================
 
     print(
         "\n"
-        + "=" * 60
+        +
+        "=" * 60
     )
+
 
     print(
         f"[{SOURCE_NAME}] "
         "SUCCESS"
     )
 
+
     print(
         f"Pages checked: "
         f"{page_number}"
     )
+
 
     print(
         f"Existing records: "
         f"{len(existing)}"
     )
 
+
     print(
         f"New records added: "
         f"{added}"
     )
+
 
     print(
         f"Total stored: "
         f"{len(stored)}"
     )
 
+
     print(
         f"JSON: "
         f"{OUTPUT_FILE}"
     )
+
 
     print(
         "=" * 60
     )
 
 
+# ============================================================
+# START
+# ============================================================
+
 if __name__ == "__main__":
 
     try:
 
         run()
+
 
     except KeyboardInterrupt:
 
@@ -1366,25 +1910,33 @@ if __name__ == "__main__":
             "Stopped by user."
         )
 
-        sys.exit(130)
+        sys.exit(
+            130
+        )
+
 
     except PlaywrightTimeoutError as error:
 
         print(
             f"\n[{SOURCE_NAME}] "
-            f"PLAYWRIGHT TIMEOUT\n"
+            "PLAYWRIGHT TIMEOUT\n"
             f"{error}"
         )
 
-        sys.exit(1)
+        sys.exit(
+            1
+        )
+
 
     except Exception as error:
 
         print(
             f"\n[{SOURCE_NAME}] "
-            f"FAILED\n"
+            "FAILED\n"
             f"{type(error).__name__}: "
             f"{error}"
         )
 
-        sys.exit(1)
+        sys.exit(
+            1
+        )

@@ -1,3 +1,5 @@
 requests==2.32.5
 beautifulsoup4==4.13.5
 playwright==1.62.0
+scikit-learn==1.9.1
+joblib==1.6.0
