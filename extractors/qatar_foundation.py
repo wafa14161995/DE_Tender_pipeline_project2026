@@ -1,3 +1,8 @@
+if __package__:
+    from ._browser_fallback import open_with_fallback
+else:
+    from _browser_fallback import open_with_fallback
+
 import json
 import re
 import sys
@@ -820,57 +825,6 @@ def move_next(
 # LAUNCH BROWSER
 # ============================================================
 
-def launch_browser(playwright):
-
-    # أول شيء:
-    # Chrome الموجود على جهازك
-
-    try:
-
-        browser = (
-            playwright
-            .chromium
-            .launch(
-                channel="chrome",
-                headless=HEADLESS,
-            )
-        )
-
-
-        print(
-            f"[{SOURCE_NAME}] "
-            "Using Google Chrome."
-        )
-
-
-        return browser
-
-
-    except Exception as error:
-
-        print(
-            f"[{SOURCE_NAME}] "
-            f"Chrome unavailable: {error}"
-        )
-
-
-    # fallback
-    browser = (
-        playwright
-        .chromium
-        .launch(
-            headless=HEADLESS,
-        )
-    )
-
-
-    print(
-        f"[{SOURCE_NAME}] "
-        "Using Playwright Chromium."
-    )
-
-
-    return browser
 
 
 # ============================================================
@@ -919,80 +873,22 @@ def run():
 
     with sync_playwright() as playwright:
 
-        browser = launch_browser(
-            playwright
+        def prepare_first_page(page):
+            response = page.goto(START_URL, wait_until="domcontentloaded", timeout=PAGE_TIMEOUT_MS)
+            if response is not None and response.status >= 400:
+                raise RuntimeError(f"HTTP error: {response.status}")
+            page.wait_for_timeout(5000)
+            check_block(page)
+            return wait_for_records(page, 1)
+
+        browser, context, page, first_records = open_with_fallback(
+            playwright, source=SOURCE_NAME, prepare=prepare_first_page,
+            context_options={'locale': 'en-US', 'viewport': {'width': 1440, 'height': 1000}},
+            timeout=PAGE_TIMEOUT_MS, preferred='chrome',
+            launch_options={"headless": HEADLESS},
         )
 
-
-        context = None
-
-
         try:
-
-            context = (
-                browser
-                .new_context(
-                    locale="en-US",
-
-                    viewport={
-                        "width": 1440,
-                        "height": 1000,
-                    },
-                )
-            )
-
-
-            page = (
-                context
-                .new_page()
-            )
-
-
-            page.set_default_timeout(
-                PAGE_TIMEOUT_MS
-            )
-
-
-            print(
-                f"[{SOURCE_NAME}] "
-                "Opening tender page..."
-            )
-
-
-            response = page.goto(
-
-                START_URL,
-
-                wait_until=
-                    "domcontentloaded",
-
-                timeout=
-                    PAGE_TIMEOUT_MS,
-            )
-
-
-            if (
-                response
-                and
-                response.status >= 400
-            ):
-
-                raise RuntimeError(
-                    "Qatar Foundation returned "
-                    f"HTTP {response.status}"
-                )
-
-
-            # Oracle يحتاج وقت
-            page.wait_for_timeout(
-                5_000
-            )
-
-
-            check_block(
-                page
-            )
-
 
             page_number = 1
 
@@ -1010,10 +906,8 @@ def run():
                 )
 
 
-                records = wait_for_records(
-                    page,
-                    page_number,
-                )
+                records = (first_records if page_number == 1
+                           else wait_for_records(page, page_number))
 
 
                 current_fingerprint = (

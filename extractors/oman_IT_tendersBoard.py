@@ -1,3 +1,8 @@
+if __package__:
+    from ._browser_fallback import open_with_fallback
+else:
+    from _browser_fallback import open_with_fallback
+
 import json
 import re
 import sys
@@ -250,34 +255,25 @@ def run():
     print(f"[{SOURCE_NAME}] Existing records: {len(existing)}")
 
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(
-            headless=True,
-            args=[
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-gpu"
-            ]
-        )
-        context = browser.new_context(
-            locale="ar-OM",
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            viewport={"width": 1920, "height": 1080},
-            ignore_https_errors=True
-        )
-        page = context.new_page()
-        page.set_default_timeout(PAGE_TIMEOUT_MS)
-
-        try:
-            print(f"[{SOURCE_NAME}] Opening website: {START_URL}")
+        def prepare_first_page(page):
             open_site(page, START_URL)
             page.wait_for_timeout(4000)
+            return extract_page(page, 1)
 
+        browser, context, page, first_records = open_with_fallback(
+            playwright, source=SOURCE_NAME, prepare=prepare_first_page,
+            context_options={'locale': 'ar-OM', 'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36', 'viewport': {'width': 1920, 'height': 1080}, 'ignore_https_errors': True},
+            timeout=PAGE_TIMEOUT_MS, preferred='chromium',
+            launch_options={'headless': True, 'args': ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']},
+        )
+
+        try:
             page_number = 1
             while page_number <= MAX_PAGES:
                 print(f"\n[{SOURCE_NAME}] Reading page {page_number}...")
 
-                records = extract_page(page, page_number)
+                records = (first_records if page_number == 1
+                           else extract_page(page, page_number))
 
                 current_fp = fingerprint(records, page_number)
                 if current_fp in seen_pages and records:

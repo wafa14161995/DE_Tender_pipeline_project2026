@@ -1,3 +1,8 @@
+if __package__:
+    from ._browser_fallback import open_with_fallback
+else:
+    from _browser_fallback import open_with_fallback
+
 import json
 import sys
 
@@ -361,16 +366,18 @@ def scrape_activity(activity_id, seen_ids, stored_records):
 
     with sync_playwright() as playwright:
 
-        browser = playwright.chromium.launch(headless=True)
+        def prepare_first_page(page):
+            response = page.goto(build_page_url(activity_id, 1), wait_until="networkidle", timeout=PAGE_TIMEOUT_MS)
+            if response is not None and response.status >= 400:
+                raise RuntimeError(f"HTTP error: {response.status}")
+            return extract_current_page(page, activity_id, 1)
 
-        context = browser.new_context(
-            locale="ar-SA",
-            viewport={"width": 1440, "height": 1100},
+        browser, context, page, first_records = open_with_fallback(
+            playwright, source=SOURCE_NAME, prepare=prepare_first_page,
+            context_options={'locale': 'ar-SA', 'viewport': {'width': 1440, 'height': 1100}},
+            timeout=PAGE_TIMEOUT_MS, preferred='chromium',
+            launch_options={'headless': True},
         )
-
-        page = context.new_page()
-
-        page.set_default_timeout(PAGE_TIMEOUT_MS)
 
         try:
 
@@ -385,20 +392,23 @@ def scrape_activity(activity_id, seen_ids, stored_records):
                     f"Loading page {page_number}..."
                 )
 
-                response = page.goto(
-                    url,
-                    wait_until="networkidle",
-                    timeout=PAGE_TIMEOUT_MS,
-                )
-
-                if response is not None and response.status >= 400:
-                    raise RuntimeError(
-                        f"HTTP error: {response.status}"
+                if page_number == 1:
+                    records = first_records
+                else:
+                    response = page.goto(
+                        url,
+                        wait_until="networkidle",
+                        timeout=PAGE_TIMEOUT_MS,
                     )
 
-                records = extract_current_page(
-                    page, activity_id, page_number
-                )
+                    if response is not None and response.status >= 400:
+                        raise RuntimeError(
+                            f"HTTP error: {response.status}"
+                        )
+
+                    records = extract_current_page(
+                        page, activity_id, page_number
+                    )
 
                 if not records:
                     print(

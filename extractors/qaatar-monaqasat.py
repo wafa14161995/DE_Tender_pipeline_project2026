@@ -1,3 +1,8 @@
+if __package__:
+    from ._browser_fallback import open_with_fallback
+else:
+    from _browser_fallback import open_with_fallback
+
 import json
 import sys
 
@@ -37,7 +42,7 @@ OUTPUT_DIR = (
 
 OUTPUT_FILE = (
     OUTPUT_DIR
-    / "qatar_finance.json"
+    / "qatar_monaqasat.json"
 )
 
 
@@ -107,7 +112,7 @@ def load_existing_records():
 
         raise RuntimeError(
             "Could not read existing "
-            "Qatar Finance JSON: "
+            "Qatar monaqasat JSON: "
             f"{exc}"
         ) from exc
 
@@ -117,7 +122,7 @@ def load_existing_records():
     ):
 
         raise RuntimeError(
-            "Existing Qatar Finance "
+            "Existing Qatar monaqasat"
             "JSON must contain a list."
         )
 
@@ -452,7 +457,7 @@ def extract_page(
 
     raise RuntimeError(
         "Could not extract "
-        "Qatar Finance "
+        "Qatar monaqasat "
         f"page {page_number}: "
         f"{last_error}"
     )
@@ -472,33 +477,14 @@ def scrape_all_pages(
 
     with sync_playwright() as playwright:
 
-        browser = (
-            playwright
-            .chromium
-            .launch(
-                headless=True
-            )
-        )
+        def prepare_first_page(page):
+            return extract_page(page, 1)
 
-        context = (
-            browser
-            .new_context(
-
-                locale="ar",
-
-                viewport={
-                    "width": 1440,
-                    "height": 1000
-                }
-            )
-        )
-
-        page = (
-            context.new_page()
-        )
-
-        page.set_default_timeout(
-            PAGE_TIMEOUT_MS
+        browser, context, page, first_records = open_with_fallback(
+            playwright, source=SOURCE_NAME, prepare=prepare_first_page,
+            context_options={'locale': 'ar', 'viewport': {'width': 1440, 'height': 1000}},
+            timeout=PAGE_TIMEOUT_MS, preferred='chromium',
+            launch_options={'headless': True},
         )
 
         try:
@@ -510,12 +496,7 @@ def scrape_all_pages(
                 <= MAX_PAGES_SAFETY
             ):
 
-                records = (
-                    extract_page(
-                        page,
-                        page_number
-                    )
-                )
+                records = first_records if page_number == 1 else extract_page(page, page_number)
 
                 if not records:
 
@@ -523,7 +504,7 @@ def scrape_all_pages(
 
                         raise RuntimeError(
                             "No tenders found "
-                            "on Qatar Finance "
+                            "on Qatar monaqasat "
                             "page 1."
                         )
 

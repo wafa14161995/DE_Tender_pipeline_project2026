@@ -1,8 +1,3 @@
-if __package__:
-    from ._browser_fallback import open_with_fallback
-else:
-    from _browser_fallback import open_with_fallback
-
 import json
 import re
 import sys
@@ -17,13 +12,19 @@ from playwright.sync_api import (
     TimeoutError as PlaywrightTimeoutError,
 )
 
+# ============================================================
+# SOURCE
+# ============================================================
 
-SOURCE_NAME = "qatar_globaltenders"
 
-START_URL = (
-    "https://www.globaltenders.com/"
-    "qatar-tenders"
-)
+SOURCE_NAME = "uae_global_tenders"
+
+START_URL = "https://www.globaltenders.com/united-arab-emirates-tenders"
+
+# ============================================================
+# PATHS
+# ============================================================
+
 
 PROJECT_ROOT = (
     Path(__file__)
@@ -36,7 +37,7 @@ OUTPUT_FILE = (
     PROJECT_ROOT
     / "results"
     / "raw"
-    / "qatar.json"
+    / "uae_global.json"
 )
 
 DEBUG_DIR = (
@@ -45,12 +46,19 @@ DEBUG_DIR = (
     / "debug"
 )
 
+
+# ============================================================
+# SETTINGS
+# ============================================================
+
 PAGE_TIMEOUT_MS = 60_000
 
-# GlobalTenders يسمح للضيف بأول 100 نتيجة فقط.
-# 20 نتيجة × 5 صفحات = 100
+
 MAX_GUEST_PAGES = 5
 
+# ============================================================
+# BLOCK MARKERS
+# ============================================================
 
 BLOCK_MARKERS = [
     "captcha",
@@ -83,7 +91,7 @@ def load_existing_records():
     except Exception as exc:
         raise RuntimeError(
             f"Could not read existing "
-            f"Qatar JSON: {exc}"
+            f" uae JSON: {exc}"
         ) from exc
 
     if not isinstance(
@@ -91,7 +99,7 @@ def load_existing_records():
         list
     ):
         raise RuntimeError(
-            "qatar.json must contain "
+            "uae_global.json must contain "
             "a JSON list."
         )
 
@@ -233,11 +241,11 @@ def wait_for_cards(page):
 
     save_debug(
         page,
-        "qatar_cards_not_found"
+        "uae_cards_not_found"
     )
 
     raise RuntimeError(
-        "Qatar tender cards "
+        "uae tender cards "
         "did not appear."
     )
 
@@ -369,7 +377,7 @@ def extract_current_page(
 
             title = clean(
                 prefix.removesuffix(
-                    "Qatar"
+                    "uae"
                 )
             )
 
@@ -389,7 +397,7 @@ def extract_current_page(
                 title,
 
             "Country":
-                "Qatar",
+                "uae",
 
             "Published Date":
                 published_date,
@@ -678,7 +686,7 @@ def open_website(page):
 
     raise RuntimeError(
         f"Could not open "
-        f"GlobalTenders Qatar: "
+        f"GlobalTenders uae: "
         f"{last_error}"
     )
 
@@ -705,20 +713,57 @@ def scrape_guest_pages(
     seen_pages = set()
 
     total_new = 0
-
     with sync_playwright() as playwright:
+        browser = None
+        errors = []
 
-        def prepare_first_page(page):
-            open_website(page)
+        for browser_type in (
+            playwright.chromium,
+            playwright.webkit,
+            playwright.firefox,
+        ):
+            try:
+                print(
+                    f"[{SOURCE_NAME}] "
+                    f"Trying {browser_type.name}..."
+                )
 
-        browser, context, page, first_records = open_with_fallback(
-            playwright, source=SOURCE_NAME, prepare=prepare_first_page,
-            context_options={'locale': 'en-US', 'viewport': {'width': 1440, 'height': 1100}},
-            timeout=PAGE_TIMEOUT_MS, preferred='chromium',
-            launch_options={'headless': True},
-        )
+                browser = browser_type.launch(headless=True)
+
+                context = browser.new_context(
+                    locale="en-US",
+                    viewport={
+                        "width": 1440,
+                        "height": 1100,
+                    },
+                )
+
+                page = context.new_page()
+                page.set_default_timeout(PAGE_TIMEOUT_MS)
+
+                open_website(page)
+                break
+
+            except Exception as exc:
+                errors.append(f"{browser_type.name}: {exc}")
+
+                print(
+                    f"[{SOURCE_NAME}] "
+                    f"Failed with {browser_type.name}: {exc}"
+                )
+
+                if browser is not None:
+                    browser.close()
+                    browser = None
+
+        else:
+            raise RuntimeError(
+                "فشل فتح الموقع بجميع المتصفحات:\n"
+                + "\n".join(errors)
+            )
 
         try:
+
 
             page_number = 1
 
@@ -743,7 +788,7 @@ def scrape_guest_pages(
                 if not current_fingerprint:
 
                     raise RuntimeError(
-                        f"No Qatar records "
+                        f"No uae_global records "
                         f"found on page "
                         f"{page_number}."
                     )
@@ -755,7 +800,7 @@ def scrape_guest_pages(
                     raise RuntimeError(
                         f"Page {page_number} "
                         f"repeated earlier "
-                        f"Qatar content."
+                        f"uae content."
                     )
 
                 seen_pages.add(
@@ -851,7 +896,7 @@ def scrape_guest_pages(
 
                     raise RuntimeError(
                         f"Could not move "
-                        f"from Qatar page "
+                        f"fromuae page "
                         f"{page_number} "
                         f"to "
                         f"{page_number + 1}."

@@ -1,3 +1,8 @@
+if __package__:
+    from ._browser_fallback import open_with_fallback
+else:
+    from _browser_fallback import open_with_fallback
+
 import json
 import re
 import sys
@@ -719,39 +724,17 @@ def run():
 
     with sync_playwright() as playwright:
 
-        browser = (
-            playwright
-            .chromium
-            .launch(
-                headless=True
-            )
-        )
+        def prepare_first_page(page):
+            open_site(page)
 
-        context = (
-            browser
-            .new_context(
-                locale="en-US",
-
-                viewport={
-                    "width": 1440,
-                    "height": 1100
-                },
-            )
-        )
-
-        page = (
-            context.new_page()
-        )
-
-        page.set_default_timeout(
-            PAGE_TIMEOUT_MS
+        browser, context, page, first_records = open_with_fallback(
+            playwright, source=SOURCE_NAME, prepare=prepare_first_page,
+            context_options={'locale': 'en-US', 'viewport': {'width': 1440, 'height': 1100}},
+            timeout=PAGE_TIMEOUT_MS, preferred='chromium',
+            launch_options={'headless': True},
         )
 
         try:
-
-            open_site(
-                page
-            )
 
             page_number = 1
 

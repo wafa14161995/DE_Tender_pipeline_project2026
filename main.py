@@ -58,7 +58,7 @@ TECH_PHRASES = [
     "software licensing", "operating system", "operating systems",
     "web application", "web applications", "website development", "website maintenance",
     "digital platform", "electronic platform", "online platform", "digital services",
-    "electronic services", "database", "databases",
+    "electronic services", "database", "databases","it accessories","fleet tracking system","tracking system services",
 
     # Cloud / Microsoft
     "cloud services", "cloud service", "cloud platform", "cloud infrastructure",
@@ -78,11 +78,12 @@ TECH_PHRASES = [
     "nas drive", "backup storage", "memory card", "usb drive",
 
     # Network / telecom
+   
     "network equipment", "network infrastructure", "network management", "network security",
-    "internet connectivity", "network", "switch catalyst", "cisco switch", "aruba",
+    "internet connectivity", "computer network", "data network", "campus network",
+    "switch catalyst", "cisco switch", "aruba","network",
     "access point", "ethernet", "voip", "ip telephone", "ip telephony", "cisco webex",
     "webex", "avaya", "wireless active components", "lan passive components",
-
     # Data center / enterprise
     "data centre", "data center", "erp system", "erp solution", "crm system",
     "customer relationship management", "document management system", "cmdb",
@@ -134,6 +135,7 @@ NON_TECH_PHRASES = [
     "cctv", "surveillance camera", "surveillance cameras", "security camera",
     "security cameras", "ip camera", "security screening equipment", "security gate",
     "security gates", "access control system", "remote control security lock",
+    
 
     # Fire / safety
     "fire alarm", "fire suppression", "firefighting", "fire fighting", "fire equipment",
@@ -153,7 +155,7 @@ NON_TECH_PHRASES = [
     "road construction", "civil works", "building construction", "geotechnical",
     "materials testing", "air conditioning", "chiller maintenance", "underfloor heating",
     "electrical equipment", "generator maintenance", "substation maintenance",
-    "water pumps", "pump spares", "pipes and fittings",
+    "water pumps", "pump spares", "pipes and fittings","stormwater network", "stormwater system",
 
     # Medical / general supplies
     "medical consumables", "laboratory reagents", "laboratory chemicals", "ultrasound",

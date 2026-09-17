@@ -1,3 +1,8 @@
+if __package__:
+    from ._browser_fallback import open_with_fallback
+else:
+    from _browser_fallback import open_with_fallback
+
 import json
 import re
 import sys
@@ -242,27 +247,29 @@ def run():
     print(f"[{SOURCE_NAME}] Existing records: {len(existing)}")
 
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+        def prepare_first_page(page):
+            open_site(page, START_URL)
+            page.wait_for_timeout(3000)
+            return extract_page(page, 1)
+
+        browser, context, page, first_records = open_with_fallback(
+            playwright, source=SOURCE_NAME, prepare=prepare_first_page,
+            context_options={'locale': 'ar-KW', 'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36', 'viewport': {'width': 1440, 'height': 1100}},
+            timeout=PAGE_TIMEOUT_MS, preferred='chromium',
+            launch_options={'headless': True, 'args': ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']},
         )
-        context = browser.new_context(
-            locale="ar-KW",
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            viewport={"width": 1440, "height": 1100}
-        )
-        page = context.new_page()
-        page.set_default_timeout(PAGE_TIMEOUT_MS)
 
         try:
             for page_number in range(1, MAX_PAGES + 1):
                 url = f"{START_URL}?page={page_number}" if page_number > 1 else START_URL
                 print(f"[{SOURCE_NAME}] Reading page {page_number}: {url}...")
 
-                open_site(page, url)
-                page.wait_for_timeout(3000)
-
-                records = extract_page(page, page_number)
+                if page_number == 1:
+                    records = first_records
+                else:
+                    open_site(page, url)
+                    page.wait_for_timeout(3000)
+                    records = extract_page(page, page_number)
 
                 if not records:
                     print(f"[{SOURCE_NAME}] No tenders found on page {page_number}. Stopping.")
