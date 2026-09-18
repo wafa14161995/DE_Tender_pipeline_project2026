@@ -7,6 +7,8 @@ from pathlib import Path
 
 import joblib
 
+import azure_upload
+
 # ============================================================
 # PATHS / LABELS
 # ============================================================
@@ -615,7 +617,18 @@ def main():
     print("\nTechnology files:", FILTERED_DIR)
     print("Review files:", REVIEW_DIR)
     print("=" * 60)
-    print("Pipeline finished" + (" with warnings." if extraction_failed or filtering_failed else " successfully."))
+
+    azure_result = azure_upload.upload_filtered_results()
+
+    print("=" * 60)
+    print(
+        "Pipeline finished"
+        + (
+            " with warnings."
+            if extraction_failed or filtering_failed or azure_result["failed"]
+            else " successfully."
+        )
+    )
     print("=" * 60)
 
 
