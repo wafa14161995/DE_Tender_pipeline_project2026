@@ -7,9 +7,9 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+  RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }} # GET SECRET
   JOB_NAME: tender-pipeline-job
-  ENVIRONMENT_NAME: etimad-env
+  ENVIRONMENT_NAME: ENV_NAME #GET ENV NAME
 
 jobs:
   build-and-deploy:
@@ -35,8 +35,7 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          # No manually-created secret needed — GITHUB_TOKEN is provided
-          # automatically to every workflow run.
+          #GITHUB_TOKEN is provided automatically to every workflow run.
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push image
@@ -51,7 +50,7 @@ jobs:
       - name: Log in to Azure
         uses: azure/login@v2
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          creds: ${{ secrets.AZURE_CREDENTIALS }} #GET AZURE_CREDENTIALS
 
       - name: Install Container Apps extension
         run: az extension add --name containerapp --upgrade
@@ -83,7 +82,8 @@ jobs:
           az containerapp job secret set \
             --name "$JOB_NAME" \
             --resource-group "$RESOURCE_GROUP" \
-            --secrets azstorageconn="${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}"
+            --secrets azstorageconn="${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}"  
+      #GET AZURE_STORAGE_CONNECTION_STRING
 
       # NOTE: this OVERWRITES whatever env vars were previously set on this
       # job (e.g. if it was previously running the old Node.js/SQL version).
