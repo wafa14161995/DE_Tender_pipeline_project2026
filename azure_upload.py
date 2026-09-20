@@ -14,7 +14,7 @@ AZURE_STORAGE_CONNECTION_STRING = os.environ.get(
     "AZURE_STORAGE_CONNECTION_STRING"
 )
 BLOB_CONTAINER_NAME = os.environ.get(
-    "BLOB_CONTAINER_NAME", "bronze"
+    "BLOB_CONTAINER_NAME", "bronze2"
 )
 
 
