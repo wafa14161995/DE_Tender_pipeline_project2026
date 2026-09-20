@@ -20,7 +20,7 @@ SOURCE_NAME = "oman_IT_tenderboard"
 START_URL = "https://etendering.tenderboard.gov.om/product/publicDash?viewFlag=NewTenders"
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-OUTPUT_FILE = PROJECT_ROOT / "results" / "raw" / "oman_IT_tendersBoard.json"
+OUTPUT_FILE = PROJECT_ROOT / "results" / "raw" / "oman_T_tendersBoard.json"
 
 PAGE_TIMEOUT_MS = 60_000
 MAX_PAGES = 45
@@ -139,14 +139,23 @@ def extract_page(page, page_number):
 
             if first_cell.rstrip('.').isdigit():
                 dates_raw = col_texts[6] if len(col_texts) > 6 else ""
+                issue_date = ""
                 sales_end = ""
                 bid_close = ""
                 
-                if "Sales EndDate:" in dates_raw:
-                    parts = dates_raw.split("Bid Closing Date:")
-                    sales_end = parts[0].replace("Sales EndDate:", "").strip("- ")
-                    if len(parts) > 1:
-                        bid_close = parts[1].strip()
+                if dates_raw:
+                    left_part = dates_raw
+                    if "Bid Closing Date:" in dates_raw:
+                        parts = dates_raw.split("Bid Closing Date:")
+                        bid_close = parts[1].strip() if len(parts) > 1 else ""
+                        left_part = parts[0]
+                    
+                    if "Sales EndDate:" in left_part:
+                        sub_parts = left_part.split("Sales EndDate:")
+                        sales_end = sub_parts[1].strip("- ").strip()
+                        issue_date = sub_parts[0].replace("Publish Date:", "").replace("تاريخ الطرح:", "").strip("- ").strip()
+                    else:
+                        issue_date = left_part.strip("- ").strip()
 
                 link = ""
                 link_el = row.locator("a")
@@ -162,6 +171,7 @@ def extract_page(page, page_number):
                     "الجهة_الحكومية": col_texts[3] if len(col_texts) > 3 else "",
                     "المجال_والدرجة": col_texts[4] if len(col_texts) > 4 else "",
                     "نوع_المناقصة": col_texts[5] if len(col_texts) > 5 else "",
+                    "تاريخ_طرح_المناقصة": issue_date,
                     "انتهاء_شراء_الكراسة": sales_end,
                     "تاريخ_إغلاق_العطاء": bid_close,
                     "Link": link,
