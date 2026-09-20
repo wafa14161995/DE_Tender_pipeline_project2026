@@ -1,7 +1,9 @@
 if __package__:
     from ._browser_fallback import open_with_fallback
+    from ._date_utils import all_records_before_today
 else:
     from _browser_fallback import open_with_fallback
+    from _date_utils import all_records_before_today
 
 import json
 import re
@@ -69,7 +71,8 @@ def clean(value):
 
 
 def load_existing_records():
-    # --- DEDUP DISABLED -- original logic preserved below as
+    # --- DEDUP DISABLED (team decision: no cross-run dedup, every run
+    # is treated as fully fresh) --- original logic preserved below as
     # dead code for easy re-enabling; just delete the line above it.
     return []  # noqa: this line is INTENTIONAL, see comment above
 
@@ -841,6 +844,13 @@ def scrape_guest_pages(
                         "100 visible tenders."
                     )
 
+                    break
+
+                # Speed optimization: once a whole page's "Published Date"
+                # is confirmed before today, stop — safe by design if
+                # dates don't parse (simply won't trigger).
+                if all_records_before_today(records, "Published Date"):
+                    print(f"[{SOURCE_NAME}] Reached yesterday's date — stopping early.")
                     break
 
                 moved = (

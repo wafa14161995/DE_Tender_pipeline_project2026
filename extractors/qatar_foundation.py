@@ -1,7 +1,9 @@
 if __package__:
     from ._browser_fallback import open_with_fallback
+    from ._date_utils import all_records_before_today
 else:
     from _browser_fallback import open_with_fallback
+    from _date_utils import all_records_before_today
 
 import json
 import re
@@ -196,7 +198,8 @@ def valid_number(value):
 # ============================================================
 
 def load_existing():
-    # --- DEDUP DISABLED -- original logic preserved below as
+    # --- DEDUP DISABLED (team decision: no cross-run dedup, every run
+    # is treated as fully fresh) --- original logic preserved below as
     # dead code for easy re-enabling; just delete the line above it.
     return []  # noqa: this line is INTENTIONAL, see comment above
 
@@ -1007,6 +1010,12 @@ def run():
                     stored
                 )
 
+                # Speed optimization: once a whole page's "Posting Date"
+                # is confirmed before today, stop — safe by design if
+                # dates don't parse (simply won't trigger).
+                if all_records_before_today(records, "Posting Date"):
+                    print(f"[{SOURCE_NAME}] Reached yesterday's date — stopping early.")
+                    break
 
                 page.wait_for_timeout(
                     PAGE_DELAY_MS
