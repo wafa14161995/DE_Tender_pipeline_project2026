@@ -8,21 +8,20 @@ from azure.storage.blob import BlobServiceClient, ContentSettings
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent
-FILTERED_DIR = PROJECT_ROOT / "results" / "filtered"
+RAW_DIR = PROJECT_ROOT / "results" / "raw"
 
 AZURE_STORAGE_CONNECTION_STRING = os.environ.get(
     "AZURE_STORAGE_CONNECTION_STRING"
 )
 BLOB_CONTAINER_NAME = os.environ.get(
-    "BLOB_CONTAINER_NAME", "bronze2"
+    "BLOB_CONTAINER_NAME", "bronze"
 )
 
 
 def is_configured():
     """
     True if Azure upload should run at all. Lets local/dev runs work
-    fine with no Azure credentials set — upload is simply skipped,
-    same graceful-degradation spirit as the rest of the project.
+    fine with no Azure credentials set -- upload is simply skipped.
     """
     return bool(AZURE_STORAGE_CONNECTION_STRING)
 
@@ -43,28 +42,28 @@ def get_container_client():
     return container_client
 
 
-def upload_filtered_results():
-    """
-    Uploads every results/filtered/<source>.json file to the Azure Blob
-    container, one blob per source per run.
 
-    NOTE: this uploads TECHNOLOGY-classified records only (results/filtered/),
-    not results/raw/ and not results/review/. That's a deliberate project
-    decision to keep Blob storage costs down — treat what lands here as
-    "already tech-filtered by the classifier," not "everything ever scraped."
+# ============================================================
+# ACTIVE -- uploads results/raw/*.json, unfiltered.
+# ============================================================
+def upload_raw_results():
+    """
+    Uploads every results/raw/<source>.json file to the Azure Blob
+    container, one blob per source per run. NO FILTERING -- everything
+    each extractor scraped goes up as-is.
     """
 
     if not is_configured():
         print(
-            "\n[azure] AZURE_STORAGE_CONNECTION_STRING not set — "
+            "\n[azure] AZURE_STORAGE_CONNECTION_STRING not set -- "
             "skipping Blob upload. Expected for local runs without "
             "Azure configured."
         )
         return {"uploaded": [], "skipped": [], "failed": []}
 
-    if not FILTERED_DIR.exists():
+    if not RAW_DIR.exists():
         print(
-            "\n[azure] No results/filtered directory found — "
+            "\n[azure] No results/raw directory found -- "
             "nothing to upload."
         )
         return {"uploaded": [], "skipped": [], "failed": []}
@@ -83,10 +82,10 @@ def upload_filtered_results():
     failed = []
 
     print("\n" + "=" * 60)
-    print("AZURE BLOB UPLOAD (bronze container)")
+    print(f"AZURE BLOB UPLOAD ({BLOB_CONTAINER_NAME} container) -- raw, unfiltered")
     print("=" * 60)
 
-    for json_file in sorted(FILTERED_DIR.glob("*.json")):
+    for json_file in sorted(RAW_DIR.glob("*.json")):
 
         source_name = json_file.stem
 
@@ -102,7 +101,7 @@ def upload_filtered_results():
 
         if not records:
             print(
-                f"[azure] {source_name}: 0 filtered records — "
+                f"[azure] {source_name}: 0 records -- "
                 f"nothing to upload."
             )
             skipped.append(source_name)
@@ -157,6 +156,4 @@ def upload_filtered_results():
 
 
 if __name__ == "__main__":
-    # Lets you re-upload without re-running the whole pipeline, e.g.
-    # after fixing an Azure credential issue: `python azure_upload.py`
-    upload_filtered_results()
+    upload_raw_results()

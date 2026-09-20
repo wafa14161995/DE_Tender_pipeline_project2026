@@ -9,7 +9,7 @@ env:
   REGISTRY: ghcr.io
   RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
   JOB_NAME: tender-pipeline-job
-  ENVIRONMENT_NAME: ENV_NAME #GET ENV NAME
+  ENVIRONMENT_NAME: tender-pipeline-env
 
 jobs:
   build-and-deploy:
