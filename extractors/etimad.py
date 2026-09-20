@@ -22,10 +22,10 @@ BASE_URL = "https://tenders.etimad.sa/Tender/AllTendersForVisitor"
 
 # --- FILTER DISABLED 
 # IT-related activity filter, confirmed working via the site's own
-#  dropdown filter.
+
 # ACTIVITY_IDS = ["9"]
 
-# No activity filter applied — scrapes every tender regardless of category.
+# No activity filter applied
 ACTIVITY_IDS = ["all"]
 
 PROJECT_ROOT = (
@@ -69,7 +69,8 @@ def clean(value):
 
 
 def load_existing_records():
-    # --- DEDUP DISABLED -- original logic preserved below as
+    # --- DEDUP DISABLED (team decision: no cross-run dedup, every run
+    # is treated as fully fresh) --- original logic preserved below as
     # dead code for easy re-enabling; just delete the line above it.
     return []  # noqa: this line is INTENTIONAL, see comment above
 
@@ -372,7 +373,7 @@ def scrape_activity(activity_id, seen_ids, stored_records):
     with sync_playwright() as playwright:
 
         def prepare_first_page(page):
-            response = page.goto(build_page_url(activity_id, 1), wait_until="networkidle", timeout=PAGE_TIMEOUT_MS)
+            response = page.goto(build_page_url(activity_id, 1), wait_until="domcontentloaded", timeout=PAGE_TIMEOUT_MS)
             if response is not None and response.status >= 400:
                 raise RuntimeError(f"HTTP error: {response.status}")
             return extract_current_page(page, activity_id, 1)
@@ -402,7 +403,7 @@ def scrape_activity(activity_id, seen_ids, stored_records):
                 else:
                     response = page.goto(
                         url,
-                        wait_until="networkidle",
+                        wait_until="domcontentloaded",
                         timeout=PAGE_TIMEOUT_MS,
                     )
 

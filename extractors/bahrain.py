@@ -134,7 +134,7 @@ def clean(value):
 # ============================================================
 
 def load_existing():
-    # --- DEDUP DISABLED - original logic preserved below as
+    # --- DEDUP DISABLED-- original logic preserved below as
     # dead code for easy re-enabling; just delete the line above it.
     return []  # noqa: this line is INTENTIONAL, see comment above
 
@@ -1506,7 +1506,7 @@ def launch_browser(
             .chromium
             .launch(
                 channel="chrome",
-                headless=False,
+                headless=True,
                 args=[
                     "--start-minimized",
                 ],
@@ -1524,7 +1524,7 @@ def launch_browser(
             playwright
             .chromium
             .launch(
-                headless=False,
+                headless=True,
             )
         )
 
@@ -1539,7 +1539,7 @@ def launch_browser(
             playwright
             .firefox
             .launch(
-                headless=False,
+                headless=True,
             )
         )
 
@@ -1554,7 +1554,7 @@ def launch_browser(
             playwright
             .webkit
             .launch(
-                headless=False,
+                headless=True,
             )
         )
 
