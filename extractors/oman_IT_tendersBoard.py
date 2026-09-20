@@ -16,7 +16,7 @@ from playwright.sync_api import (
     TimeoutError as PlaywrightTimeoutError,
 )
 
-SOURCE_NAME = "oman_IT_tenderboard"
+SOURCE_NAME = "oman_T_tenderboard"
 START_URL = "https://etendering.tenderboard.gov.om/product/publicDash?viewFlag=NewTenders"
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
