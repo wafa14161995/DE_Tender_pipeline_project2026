@@ -51,30 +51,31 @@ def main():
     for extractor in extractors:
         print(" -", extractor.name)
 
-    # Split into two batches, each run by its own thread concurrently.
-    # Static split (first half / second half), not a dynamic work queue —
-    # matches "thread 1 takes 5, thread 2 takes 5" .
-    mid = (len(extractors) + 1) // 2
-    batch_1 = extractors[:mid]
-    batch_2 = extractors[mid:]
+#  NUM_THREADS to use multi threads to run the 10 portals.
+    NUM_THREADS = 4
+    batches = [[] for _ in range(NUM_THREADS)]
+    for i, extractor in enumerate(extractors):
+        batches[i % NUM_THREADS].append(extractor)
 
-    print(f"\nThread 1 ({len(batch_1)}): {[e.name for e in batch_1]}")
-    print(f"Thread 2 ({len(batch_2)}): {[e.name for e in batch_2]}")
+    for i, batch in enumerate(batches, start=1):
+        print(f"\nThread {i} ({len(batch)}): {[e.name for e in batch]}")
 
     extraction_failed = []
     lock = threading.Lock()
 
-    thread_1 = threading.Thread(
-        target=run_batch, args=("thread-1", batch_1, extraction_failed, lock)
-    )
-    thread_2 = threading.Thread(
-        target=run_batch, args=("thread-2", batch_2, extraction_failed, lock)
-    )
+    threads = [
+        threading.Thread(
+            target=run_batch,
+            args=(f"thread-{i}", batch, extraction_failed, lock),
+        )
+        for i, batch in enumerate(batches, start=1)
+        if batch  # skip empty batches (e.g. fewer extractors than threads)
+    ]
 
-    thread_1.start()
-    thread_2.start()
-    thread_1.join()
-    thread_2.join()
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
 
     print("\n" + "=" * 60)
     print("EXTRACTION SUMMARY")
