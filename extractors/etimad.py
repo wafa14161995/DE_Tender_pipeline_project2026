@@ -1,7 +1,9 @@
 if __package__:
     from ._browser_fallback import open_with_fallback
+    from ._date_utils import all_records_before_today
 else:
     from _browser_fallback import open_with_fallback
+    from _date_utils import all_records_before_today
 
 import json
 import sys
@@ -20,11 +22,16 @@ SOURCE_NAME = "ksa_etimad"
 
 BASE_URL = "https://tenders.etimad.sa/Tender/AllTendersForVisitor"
 
+# --- FILTER DISABLED (team decision: bronze layer should be fully raw) ---
 # IT-related activity filter, confirmed working via the site's own
 # "النشاط الأساسي" (Primary Activity) dropdown filter.
-# NOTE: ID 9 "Communications & IT Devices" 
+# NOTE: ID 9 "Communications & IT Devices"
+# ACTIVITY_IDS = ["9"]
 
-ACTIVITY_IDS = ["9"]
+# No activity filter applied — scrapes every tender regardless of category.
+# The value here is just a loop placeholder now (see build_page_url below,
+# which no longer sends a TenderActivityId param at all).
+ACTIVITY_IDS = ["all"]
 
 PROJECT_ROOT = (
     Path(__file__)
@@ -67,6 +74,10 @@ def clean(value):
 
 
 def load_existing_records():
+    # --- DEDUP DISABLED (team decision: no cross-run dedup, every run
+    # is treated as fully fresh) --- original logic preserved below as
+    # dead code for easy re-enabling; just delete the line above it.
+    return []  # noqa: this line is INTENTIONAL, see comment above
 
     if not OUTPUT_FILE.exists():
         return []
@@ -178,7 +189,7 @@ def build_page_url(activity_id, page_number):
 
     # Full param set confirmed working via a real browser session
     params = {
-        "TenderActivityId": activity_id,
+        # "TenderActivityId": activity_id,  # FILTER DISABLED — full raw scrape
         "PublishDateId": "5",
         "SortDirection": "DESC",
         "Sort": "SubmitionDate",
@@ -367,7 +378,7 @@ def scrape_activity(activity_id, seen_ids, stored_records):
     with sync_playwright() as playwright:
 
         def prepare_first_page(page):
-            response = page.goto(build_page_url(activity_id, 1), wait_until="networkidle", timeout=PAGE_TIMEOUT_MS)
+            response = page.goto(build_page_url(activity_id, 1), wait_until="domcontentloaded", timeout=PAGE_TIMEOUT_MS)
             if response is not None and response.status >= 400:
                 raise RuntimeError(f"HTTP error: {response.status}")
             return extract_current_page(page, activity_id, 1)
@@ -397,7 +408,7 @@ def scrape_activity(activity_id, seen_ids, stored_records):
                 else:
                     response = page.goto(
                         url,
-                        wait_until="networkidle",
+                        wait_until="domcontentloaded",
                         timeout=PAGE_TIMEOUT_MS,
                     )
 
@@ -452,6 +463,16 @@ def scrape_activity(activity_id, seen_ids, stored_records):
                 if page_duplicates == len(records) and len(records) > 0:
                     print(
                         f"[{SOURCE_NAME}] Page fully duplicate — "
+                        f"stopping this activity early."
+                    )
+                    break
+
+                # Speed optimization: once a whole page's "Published Date"
+                # is confirmed before today, stop — safe by design if
+                # dates don't parse (simply won't trigger).
+                if all_records_before_today(records, "Published Date"):
+                    print(
+                        f"[{SOURCE_NAME}] Reached yesterday's date — "
                         f"stopping this activity early."
                     )
                     break

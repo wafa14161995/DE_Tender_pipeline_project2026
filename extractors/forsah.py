@@ -1,3 +1,8 @@
+if __package__:
+    from ._date_utils import all_records_before_today
+else:
+    from _date_utils import all_records_before_today
+
 import json
 import sys
 
@@ -14,11 +19,13 @@ SOURCE_NAME = "ksa_forsah"
 # السورس ماخخوذ من جيسون فايل موجود في الباكاند يتحدث مع كل مناقصه جديده تنوجد في الفرونت اند 
 API_URL = "https://forsah-api.910ths.sa/api/v1/opportunities"
 
+# --- FILTER DISABLED (team decision: bronze layer should be fully raw) ---
 # IT-related category filter, confirmed working in earlier testing.
-CATEGORY_IDS = [
-    "7b458ed1-12b6-49bb-b34d-ee5b32a7ecc6",  # Communications & IT Devices
-    "01d1775a-8083-408a-b5a2-9bc603933503",  # Communications & IT Services
-]
+# CATEGORY_IDS = [
+#     "7b458ed1-12b6-49bb-b34d-ee5b32a7ecc6",  # Communications & IT Devices
+#     "01d1775a-8083-408a-b5a2-9bc603933503",  # Communications & IT Services
+# ]
+CATEGORY_IDS = []  # empty — no category filter applied, fetches all opportunities
 
 PROJECT_ROOT = (
     Path(__file__)
@@ -52,6 +59,10 @@ def clean(value):
 
 
 def load_existing_records():
+    # --- DEDUP DISABLED (team decision: no cross-run dedup, every run
+    # is treated as fully fresh) --- original logic preserved below as
+    # dead code for easy re-enabling; just delete the line above it.
+    return []  # noqa: this line is INTENTIONAL, see comment above
 
     if not OUTPUT_FILE.exists():
         return []
@@ -299,6 +310,15 @@ def scrape_all_pages(existing_records):
 
         if page_duplicates == len(records) and len(records) > 0:
             print(f"[{SOURCE_NAME}] Page fully duplicate — stopping early.")
+            break
+
+        # Speed optimization: Forsah lists newest-first, so once a whole
+        # page's "Published Date" is confirmed to be before today, every
+        # page after it is too — stop, since only today's data matters
+        # for the archive/Blob upload anyway. Safe by design: if any
+        # record's date can't be parsed, this simply doesn't trigger.
+        if all_records_before_today(records, "Published Date"):
+            print(f"[{SOURCE_NAME}] Reached yesterday's date — stopping early.")
             break
 
         page_number += 1

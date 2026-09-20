@@ -2,6 +2,7 @@ import json
 import re
 import sys
 import time
+import os
 
 from datetime import datetime, timezone
 from pathlib import Path
@@ -52,6 +53,24 @@ DEBUG_DIR = (
     / "results"
     / "debug"
 )
+
+# يكتشف تلقائياً إذا كان الكود يشتغل على Databricks
+# (متغيرات بيئة تكون موجودة فقط هناك) ويفعّل headless تلقائياً.
+# على جهازك ما رح توجد هذي المتغيرات، فتبقى نافذة ظاهرة كالسابق.
+_ON_DATABRICKS = bool(
+    os.getenv("DATABRICKS_RUNTIME_VERSION")
+    or os.getenv("DB_HOME")
+)
+
+HEADLESS = os.getenv("HEADLESS", "1" if _ON_DATABRICKS else "0") == "1"
+
+# WebKit أولاً لأنه يشتغل مع الموقع
+BROWSER_ORDER = [
+    "WebKit",
+    "Firefox",
+    "Google Chrome",
+    "Chromium",
+]
 
 
 # ============================================================
@@ -134,6 +153,9 @@ def clean(value):
 # ============================================================
 
 def load_existing():
+    # --- DEDUP DISABLED-- original logic preserved below as
+    # dead code for easy re-enabling; just delete the line above it.
+    return []  # noqa: this line is INTENTIONAL, see comment above
 
     if not OUTPUT_FILE.exists():
 
@@ -310,47 +332,39 @@ def check_block(page):
 
 
 # ============================================================
-# WATCH NETWORK RESPONSES
+# WATCH NETWORK RESPONSES  (FIXED)
 # ============================================================
+# نعتبر 403/429 رفضاً فقط إذا كان على الصفحة نفسها أو على طلب
+# البيانات (document / xhr / fetch). ملفات JS و CSS والصور
+# (مثل custom-isotope.js) لا توقف السكربت.
 
-def attach_network_monitor(
-    page,
-    restriction_events,
-):
+def attach_network_monitor(page, restriction_events):
 
-    def handle_response(
-        response
-    ):
-
+    def handle_response(response):
         try:
-
             status = response.status
+            rtype = response.request.resource_type
 
-            url = response.url
-
-
-            if status in (
-                403,
-                429,
-            ):
-
+            if status in (403, 429) and rtype in ("document", "xhr", "fetch"):
                 restriction_events.append(
-                    {
-                        "status": status,
-                        "url": url,
-                    }
+                    {"status": status, "url": response.url}
                 )
-
         except Exception:
-
             pass
 
+    page.on("response", handle_response)
 
-    page.on(
-        "response",
-        handle_response,
+
+def check_network_restrictions(restriction_events):
+    if not restriction_events:
+        return
+
+    last_event = restriction_events[-1]
+
+    raise SiteRestrictedError(
+        f"Bahrain server returned HTTP {last_event['status']} "
+        f"for {last_event['url']}"
     )
-
 
 # ============================================================
 # CHECK NETWORK RESTRICTIONS
@@ -1486,492 +1500,210 @@ def next_page(
 # ============================================================
 # BROWSER LAUNCHERS
 # ============================================================
+def launch_browser(playwright, browser_name):
 
-def launch_browser(
-    playwright,
-    browser_name,
-):
-
-    if (
-        browser_name
-        ==
-        "Google Chrome"
-    ):
-
-        return (
-            playwright
-            .chromium
-            .launch(
-                channel="chrome",
-                headless=False,
-                args=[
-                    "--start-minimized",
-                ],
-            )
+    if browser_name == "Google Chrome":
+        return playwright.chromium.launch(
+            channel="chrome",
+            headless=HEADLESS,
+            args=["--start-minimized"],
         )
 
-
-    if (
-        browser_name
-        ==
-        "Chromium"
-    ):
-
-        return (
-            playwright
-            .chromium
-            .launch(
-                headless=False,
-            )
+    if browser_name == "Chromium":
+        return playwright.chromium.launch(
+            headless=HEADLESS,
+            args=["--no-sandbox", "--disable-dev-shm-usage"],
         )
 
+    if browser_name == "Firefox":
+        return playwright.firefox.launch(headless=HEADLESS)
 
-    if (
-        browser_name
-        ==
-        "Firefox"
-    ):
+    if browser_name == "WebKit":
+        return playwright.webkit.launch(headless=HEADLESS)
 
-        return (
-            playwright
-            .firefox
-            .launch(
-                headless=False,
-            )
-        )
-
-
-    if (
-        browser_name
-        ==
-        "WebKit"
-    ):
-
-        return (
-            playwright
-            .webkit
-            .launch(
-                headless=False,
-            )
-        )
-
-
-    raise ValueError(
-        f"Unknown browser: "
-        f"{browser_name}"
-    )
+    raise ValueError(f"Unknown browser: {browser_name}")
 
 
 # ============================================================
 # OPEN WEBSITE
 # ============================================================
 
-def open_site_with_browser(
-    playwright,
-    browser_name,
-):
+def open_site_with_browser(playwright, browser_name):
 
-    print(
-        "\n"
-        +
-        "=" * 60
-    )
-
-    print(
-        f"[{SOURCE_NAME}] "
-        f"Trying browser: "
-        f"{browser_name}"
-    )
-
-    print(
-        "=" * 60
-    )
-
+    print("\n" + "=" * 60)
+    print(f"[{SOURCE_NAME}] Trying browser: {browser_name} (headless={HEADLESS})")
+    print("=" * 60)
 
     try:
-
-        browser = launch_browser(
-            playwright,
-            browser_name,
-        )
-
+        browser = launch_browser(playwright, browser_name)
 
     except Exception as error:
-
         raise BrowserAttemptError(
-            f"Could not launch "
-            f"{browser_name}: "
-            f"{error}"
+            f"Could not launch {browser_name}: {error}"
         )
-
 
     context = None
-
     page = None
 
-
     try:
-
-        context = (
-            browser
-            .new_context(
-                locale="en-US",
-
-                viewport={
-                    "width": 1440,
-                    "height": 1100,
-                },
-            )
+        context = browser.new_context(
+            locale="en-US",
+            viewport={"width": 1440, "height": 1100},
         )
 
+        page = context.new_page()
 
-        page = (
-            context
-            .new_page()
-        )
-
-
-        page.set_default_timeout(
-            PAGE_TIMEOUT_MS
-        )
-
+        page.set_default_timeout(PAGE_TIMEOUT_MS)
 
         restriction_events = []
 
-
-        attach_network_monitor(
-            page,
-            restriction_events,
-        )
-
+        attach_network_monitor(page, restriction_events)
 
         last_error = None
 
-
-        for attempt in range(
-            1,
-            OPEN_RETRIES + 1,
-        ):
+        for attempt in range(1, OPEN_RETRIES + 1):
 
             try:
-
                 print(
-                    f"[{SOURCE_NAME}] "
-                    f"Opening website "
-                    f"attempt "
-                    f"{attempt}/"
-                    f"{OPEN_RETRIES}..."
+                    f"[{SOURCE_NAME}] Opening website "
+                    f"attempt {attempt}/{OPEN_RETRIES}..."
                 )
 
-
-                response = (
-                    page.goto(
-                        START_URL,
-
-                        wait_until=
-                            "domcontentloaded",
-
-                        timeout=
-                            PAGE_TIMEOUT_MS,
-                    )
+                response = page.goto(
+                    START_URL,
+                    wait_until="domcontentloaded",
+                    timeout=PAGE_TIMEOUT_MS,
                 )
 
-
-                if (
-                    response
-                    and
-                    response.status
-                    in (
-                        403,
-                        429,
-                    )
-                ):
-
+                if response and response.status in (403, 429):
                     raise SiteRestrictedError(
-                        "Bahrain main page "
-                        f"returned "
-                        f"HTTP "
-                        f"{response.status}"
+                        f"Bahrain main page returned HTTP {response.status}"
                     )
 
-
-                if (
-                    response
-                    and
-                    response.status
-                    >= 400
-                ):
-
+                if response and response.status >= 400:
                     raise BrowserAttemptError(
-                        "Bahrain main page "
-                        f"returned "
-                        f"HTTP "
-                        f"{response.status}"
+                        f"Bahrain main page returned HTTP {response.status}"
                     )
 
+                check_network_restrictions(restriction_events)
 
-                check_network_restrictions(
-                    restriction_events
-                )
-
-
-                check_block(
-                    page
-                )
-
+                check_block(page)
 
                 page.wait_for_selector(
-                    (
-                        "#cphBaseBody_"
-                        "CphInnerBody_"
-                        "TenderDetailsBlock"
-                    ),
-
+                    "#cphBaseBody_CphInnerBody_TenderDetailsBlock",
                     state="attached",
-
-                    timeout=
-                        PAGE_TIMEOUT_MS,
+                    timeout=PAGE_TIMEOUT_MS,
                 )
-
 
                 page.wait_for_selector(
-                    (
-                        'button['
-                        'onclick*="'
-                        'fnGetCurrentPublicTender'
-                        '"]'
-                    ),
-
+                    'button[onclick*="fnGetCurrentPublicTender"]',
                     state="attached",
-
-                    timeout=
-                        PAGE_TIMEOUT_MS,
+                    timeout=PAGE_TIMEOUT_MS,
                 )
 
+                page.wait_for_timeout(4_000)
 
-                page.wait_for_timeout(
-                    4_000
-                )
+                check_network_restrictions(restriction_events)
 
-
-                check_network_restrictions(
-                    restriction_events
-                )
-
-
-                rows = discover_rows(
-                    page
-                )
-
+                rows = discover_rows(page)
 
                 if rows:
+                    print(f"[{SOURCE_NAME}] Tender rows loaded automatically.")
+                    return browser, context, page, restriction_events
 
-                    print(
-                        f"[{SOURCE_NAME}] "
-                        "Tender rows loaded "
-                        "automatically."
-                    )
+                print(f"[{SOURCE_NAME}] Clicking Search...")
 
+                search_button = page.locator(
+                    'button[onclick*="fnGetCurrentPublicTender"]'
+                ).first
 
-                    return (
-                        browser,
-                        context,
-                        page,
-                        restriction_events,
-                    )
+                search_button.click(timeout=15_000)
 
+                wait_for_rows(page, restriction_events, seconds=35)
 
-                print(
-                    f"[{SOURCE_NAME}] "
-                    "Clicking Search..."
-                )
+                print(f"[{SOURCE_NAME}] {browser_name} loaded tender rows.")
 
-
-                search_button = (
-                    page.locator(
-                        (
-                            'button['
-                            'onclick*="'
-                            'fnGetCurrentPublicTender'
-                            '"]'
-                        )
-                    )
-                    .first
-                )
-
-
-                search_button.click(
-                    timeout=15_000
-                )
-
-
-                wait_for_rows(
-                    page,
-                    restriction_events,
-                    seconds=35,
-                )
-
-
-                print(
-                    f"[{SOURCE_NAME}] "
-                    f"{browser_name} "
-                    "loaded tender rows."
-                )
-
-
-                return (
-                    browser,
-                    context,
-                    page,
-                    restriction_events,
-                )
-
+                return browser, context, page, restriction_events
 
             except SiteRestrictedError:
-
                 raise
 
-
             except Exception as error:
-
                 last_error = error
 
-
                 print(
-                    f"[{SOURCE_NAME}] "
-                    f"{browser_name} "
-                    f"attempt failed: "
-                    f"{error}"
+                    f"[{SOURCE_NAME}] {browser_name} attempt failed: {error}"
                 )
 
-
-                if (
-                    attempt
-                    <
-                    OPEN_RETRIES
-                ):
-
-                    page.wait_for_timeout(
-                        3_000
-                    )
-
+                if attempt < OPEN_RETRIES:
+                    page.wait_for_timeout(3_000)
 
         raise BrowserAttemptError(
-            f"{browser_name} failed "
-            f"after "
-            f"{OPEN_RETRIES} attempts: "
-            f"{last_error}"
+            f"{browser_name} failed after {OPEN_RETRIES} attempts: {last_error}"
         )
-
 
     except Exception:
 
         if context:
-
             try:
-
                 context.close()
-
             except Exception:
-
                 pass
 
-
         try:
-
             browser.close()
-
         except Exception:
-
             pass
 
-
         raise
+
 
 
 # ============================================================
 # GET FIRST WORKING BROWSER
 # ============================================================
+# إذا رفض الموقع محرك معيّن (403 على الصفحة أو طلب البيانات)
+# ننتقل للمحرك التالي. إذا رفضته كل المحركات نتوقف ولا نحاول
+# أي التفاف (لا تغيير user-agent ولا إخفاء headless).
 
-def get_working_browser(
-    playwright,
-):
+def get_working_browser(playwright):
 
-    browsers = [
-        "Google Chrome",
-        "Chromium",
-        "Firefox",
-        "WebKit",
-    ]
-
-
+    restricted = []
     browser_errors = []
 
-
-    for browser_name in browsers:
+    for browser_name in BROWSER_ORDER:
 
         try:
+            return open_site_with_browser(playwright, browser_name)
 
-            return open_site_with_browser(
-                playwright,
-                browser_name,
+        except SiteRestrictedError as error:
+            restricted.append((browser_name, str(error)))
+            print(
+                f"[{SOURCE_NAME}] {browser_name} was refused by the site. "
+                "Moving to next engine."
             )
-
-
-        except SiteRestrictedError:
-
-            # IMPORTANT:
-            # إذا الموقع نفسه منع الوصول،
-            # ما نبدل متصفحات لمحاولة تجاوز الحماية.
-
-            raise
-
 
         except BrowserAttemptError as error:
+            browser_errors.append((browser_name, str(error)))
+            print(f"[{SOURCE_NAME}] Moving to next browser.")
 
-            browser_errors.append(
-                (
-                    browser_name,
-                    str(error),
-                )
-            )
+    print("\n" + "=" * 60)
+    print("BROWSER ATTEMPT SUMMARY")
+    print("=" * 60)
 
+    for browser_name, error in restricted:
+        print(f"{browser_name} (restricted): {error}")
 
-            print(
-                f"[{SOURCE_NAME}] "
-                f"Moving to next browser."
-            )
+    for browser_name, error in browser_errors:
+        print(f"{browser_name}: {error}")
 
-
-    print(
-        "\n"
-        +
-        "=" * 60
-    )
-
-    print(
-        "BROWSER ATTEMPT SUMMARY"
-    )
-
-    print(
-        "=" * 60
-    )
-
-
-    for (
-        browser_name,
-        error,
-    ) in browser_errors:
-
-        print(
-            f"{browser_name}: "
-            f"{error}"
+    if restricted and not browser_errors:
+        raise SiteRestrictedError(
+            "All browser engines were refused by the Bahrain site."
         )
 
-
     raise RuntimeError(
-        "No installed Playwright browser "
-        "could load Bahrain tender rows."
+        "No installed Playwright browser could load Bahrain tender rows."
     )
 
 

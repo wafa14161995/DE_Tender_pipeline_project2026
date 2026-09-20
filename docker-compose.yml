@@ -5,3 +5,7 @@ services:
 
     volumes:
       - ./results:/app/results
+
+    environment:
+      - AZURE_STORAGE_CONNECTION_STRING=${AZURE_STORAGE_CONNECTION_STRING}
+      - BLOB_CONTAINER_NAME=${BLOB_CONTAINER_NAME:-bronze}

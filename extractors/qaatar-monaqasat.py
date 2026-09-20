@@ -1,7 +1,9 @@
 if __package__:
     from ._browser_fallback import open_with_fallback
+    from ._date_utils import all_records_before_today
 else:
     from _browser_fallback import open_with_fallback
+    from _date_utils import all_records_before_today
 
 import json
 import sys
@@ -96,6 +98,10 @@ def clean_text(value):
 
 
 def load_existing_records():
+    # --- DEDUP DISABLED (team decision: no cross-run dedup, every run
+    # is treated as fully fresh) --- original logic preserved below as
+    # dead code for easy re-enabling; just delete the line above it.
+    return []  # noqa: this line is INTENTIONAL, see comment above
 
     if not OUTPUT_FILE.exists():
         return []
@@ -595,6 +601,13 @@ def scrape_all_pages(
                     f"duplicates="
                     f"{page_duplicates}"
                 )
+
+                # Speed optimization: once a whole page's "تاريخ الطرح"
+                # (posting date) is confirmed before today, stop — safe
+                # by design if dates don't parse (simply won't trigger).
+                if all_records_before_today(records, "تاريخ الطرح"):
+                    print(f"[{SOURCE_NAME}] Reached yesterday's date — stopping early.")
+                    break
 
                 page_number += 1
 
