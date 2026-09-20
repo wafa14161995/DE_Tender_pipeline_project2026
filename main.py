@@ -1,5 +1,6 @@
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 import azure_upload
@@ -10,7 +11,6 @@ import azure_upload
 PROJECT_ROOT = Path(__file__).resolve().parent
 EXTRACTORS_DIR = PROJECT_ROOT / "extractors"
 RAW_DIR = PROJECT_ROOT / "results" / "raw"
-
 
 # ============================================================
 # ACTIVE -- raw extraction + upload only, no filtering
@@ -32,6 +32,15 @@ def run_extractor(extractor):
     return result.returncode == 0
 
 
+def run_batch(thread_label, extractors, failed_list, lock):
+    for extractor in extractors:
+        print(f"[{thread_label}] starting {extractor.name}")
+        if not run_extractor(extractor):
+            with lock:
+                failed_list.append(extractor.name)
+            print(f"WARNING: {extractor.name} extraction failed.")
+
+
 def main():
     print("=" * 60)
     print("TENDER PIPELINE - RAW EXTRACTION ONLY (no filtering)")
@@ -42,12 +51,30 @@ def main():
     for extractor in extractors:
         print(" -", extractor.name)
 
-    extraction_failed = []
+    # Split into two batches, each run by its own thread concurrently.
+    # Static split (first half / second half), not a dynamic work queue —
+    # matches "thread 1 takes 5, thread 2 takes 5" .
+    mid = (len(extractors) + 1) // 2
+    batch_1 = extractors[:mid]
+    batch_2 = extractors[mid:]
 
-    for extractor in extractors:
-        if not run_extractor(extractor):
-            extraction_failed.append(extractor.name)
-            print(f"WARNING: {extractor.name} extraction failed.")
+    print(f"\nThread 1 ({len(batch_1)}): {[e.name for e in batch_1]}")
+    print(f"Thread 2 ({len(batch_2)}): {[e.name for e in batch_2]}")
+
+    extraction_failed = []
+    lock = threading.Lock()
+
+    thread_1 = threading.Thread(
+        target=run_batch, args=("thread-1", batch_1, extraction_failed, lock)
+    )
+    thread_2 = threading.Thread(
+        target=run_batch, args=("thread-2", batch_2, extraction_failed, lock)
+    )
+
+    thread_1.start()
+    thread_2.start()
+    thread_1.join()
+    thread_2.join()
 
     print("\n" + "=" * 60)
     print("EXTRACTION SUMMARY")
