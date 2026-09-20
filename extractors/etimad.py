@@ -20,11 +20,13 @@ SOURCE_NAME = "ksa_etimad"
 
 BASE_URL = "https://tenders.etimad.sa/Tender/AllTendersForVisitor"
 
+# --- FILTER DISABLED 
 # IT-related activity filter, confirmed working via the site's own
-# "النشاط الأساسي" (Primary Activity) dropdown filter.
-# NOTE: ID 9 "Communications & IT Devices" 
+#  dropdown filter.
+# ACTIVITY_IDS = ["9"]
 
-ACTIVITY_IDS = ["9"]
+# No activity filter applied — scrapes every tender regardless of category.
+ACTIVITY_IDS = ["all"]
 
 PROJECT_ROOT = (
     Path(__file__)
@@ -67,6 +69,9 @@ def clean(value):
 
 
 def load_existing_records():
+    # --- DEDUP DISABLED -- original logic preserved below as
+    # dead code for easy re-enabling; just delete the line above it.
+    return []  # noqa: this line is INTENTIONAL, see comment above
 
     if not OUTPUT_FILE.exists():
         return []
@@ -178,7 +183,7 @@ def build_page_url(activity_id, page_number):
 
     # Full param set confirmed working via a real browser session
     params = {
-        "TenderActivityId": activity_id,
+        # "TenderActivityId": activity_id,  # FILTER DISABLED — full raw scrape
         "PublishDateId": "5",
         "SortDirection": "DESC",
         "Sort": "SubmitionDate",

@@ -39,10 +39,16 @@ def clean(value):
 
 def is_it_tender(record):
     """فلتر دقيق: يتحقق أن حقل 'المجال_والدرجة' يحتوي على 'خدمات تقنية المعلومات'"""
+    # --- FILTER DISABLED 
+    # "return True" line above it to re-enable.
+    return True  # noqa: this line is INTENTIONAL, see comment above
     field_text = clean(record.get("المجال_والدرجة", ""))
     return "خدمات تقنية المعلومات" in field_text
 
 def load_existing():
+    # --- DEDUP DISABLED - original logic preserved below as
+    # dead code for easy re-enabling; just delete the line above it.
+    return []  # noqa: this line is INTENTIONAL, see comment above
     if not OUTPUT_FILE.exists():
         return []
     try:

@@ -14,11 +14,12 @@ SOURCE_NAME = "ksa_forsah"
 # السورس ماخخوذ من جيسون فايل موجود في الباكاند يتحدث مع كل مناقصه جديده تنوجد في الفرونت اند 
 API_URL = "https://forsah-api.910ths.sa/api/v1/opportunities"
 
-# IT-related category filter, confirmed working in earlier testing.
-CATEGORY_IDS = [
-    "7b458ed1-12b6-49bb-b34d-ee5b32a7ecc6",  # Communications & IT Devices
-    "01d1775a-8083-408a-b5a2-9bc603933503",  # Communications & IT Services
-]
+# --- FILTER DISABLED
+# CATEGORY_IDS = [
+#     "7b458ed1-12b6-49bb-b34d-ee5b32a7ecc6",  # Communications & IT Devices
+#     "01d1775a-8083-408a-b5a2-9bc603933503",  # Communications & IT Services
+# ]
+CATEGORY_IDS = []  #  fetches all opportunities
 
 PROJECT_ROOT = (
     Path(__file__)
@@ -26,7 +27,7 @@ PROJECT_ROOT = (
     .parent
     .parent
 )
-
+#ما نستخدمه
 OUTPUT_FILE = (
     PROJECT_ROOT
     / "results"
@@ -52,6 +53,9 @@ def clean(value):
 
 
 def load_existing_records():
+    # --- DEDUP DISABLED -- original logic preserved below as
+    # dead code for easy re-enabling; just delete the line above it.
+    return []  # noqa: this line is INTENTIONAL, see comment above
 
     if not OUTPUT_FILE.exists():
         return []

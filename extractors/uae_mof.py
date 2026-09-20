@@ -71,6 +71,9 @@ def clean(value):
 
 
 def load_existing():
+    # --- DEDUP DISABLED - original logic preserved below as
+    # dead code for easy re-enabling; just delete the line above it.
+    return []  # noqa: this line is INTENTIONAL, see comment above
 
     if not OUTPUT_FILE.exists():
         return []
