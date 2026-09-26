@@ -50,9 +50,9 @@ OUTPUT_FILE = (
 
 PAGE_TIMEOUT_MS = 60_000
 
-PAGE_RETRIES = 2
+PAGE_RETRIES = 20
 
-MAX_PAGES_SAFETY = 500
+MAX_PAGES_SAFETY = 40
 
 
 FIELDS = {
@@ -605,6 +605,7 @@ def scrape_all_pages(
                 # Speed optimization: once a whole page's "تاريخ الطرح"
                 # (posting date) is confirmed before today, stop — safe
                 # by design if dates don't parse (simply won't trigger).
+                # --- DATE EARLY-STOP DISABLED: fetch all pages ---
                 if all_records_before_today(records, "تاريخ الطرح"):
                     print(f"[{SOURCE_NAME}] Reached yesterday's date — stopping early.")
                     break

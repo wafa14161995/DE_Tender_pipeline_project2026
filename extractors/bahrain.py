@@ -1,3 +1,8 @@
+if __package__:
+    from ._date_utils import all_records_before_today
+else:
+    from _date_utils import all_records_before_today
+
 import json
 import re
 import sys
@@ -79,7 +84,7 @@ BROWSER_ORDER = [
 
 PAGE_TIMEOUT_MS = 60_000
 
-MAX_PAGES = 45
+MAX_PAGES = 20
 
 PAGE_DELAY_MS = 1_500
 
@@ -1903,6 +1908,13 @@ def run():
                     f"duplicates="
                     f"{page_duplicates}"
                 )
+
+
+                # Stop once a whole page is older than yesterday
+                # (Bahrain lists newest-first).
+                if all_records_before_today(records, "Published Date"):
+                    print(f"[{SOURCE_NAME}] Reached yesterday's date — stopping early.")
+                    break
 
 
                 if (

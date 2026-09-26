@@ -51,7 +51,7 @@ REQUEST_TIMEOUT_S = 30
 
 PER_PAGE = 50
 
-MAX_PAGES = 5
+MAX_PAGES = 20
 
 
 def clean(value):
@@ -317,6 +317,7 @@ def scrape_all_pages(existing_records):
         # page after it is too — stop, since only today's data matters
         # for the archive/Blob upload anyway. Safe by design: if any
         # record's date can't be parsed, this simply doesn't trigger.
+        # --- DATE EARLY-STOP DISABLED: fetch all MAX_PAGES pages ---
         if all_records_before_today(records, "Published Date"):
             print(f"[{SOURCE_NAME}] Reached yesterday's date — stopping early.")
             break

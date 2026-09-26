@@ -42,7 +42,7 @@ OUTPUT_FILE = (
 )
 
 PAGE_TIMEOUT_MS = 60_000
-MAX_PAGES = 500
+MAX_PAGES = 20
 
 
 EXPECTED_HEADERS = [
@@ -844,12 +844,10 @@ def run():
                     f"{page_duplicates}"
                 )
 
-                # Speed optimization: once a whole page's "Open Date" is
-                # confirmed before today, stop — safe by design if dates
-                # don't parse (simply won't trigger).
-                if all_records_before_today(records, "Open Date"):
-                    print(f"[{SOURCE_NAME}] Reached yesterday's date — stopping early.")
-                    break
+                # --- DATE EARLY-STOP DISABLED: fetch all MAX_PAGES pages ---
+                # if all_records_before_today(records, "Open Date"):
+                #     print(f"[{SOURCE_NAME}] Reached yesterday's date — stopping early.")
+                #     break
 
                 if not move_next(
                     page,

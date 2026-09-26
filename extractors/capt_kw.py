@@ -1,8 +1,6 @@
 if __package__:
-    from ._browser_fallback import open_with_fallback
     from ._date_utils import all_records_before_today
 else:
-    from _browser_fallback import open_with_fallback
     from _date_utils import all_records_before_today
 
 import json
@@ -21,7 +19,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 OUTPUT_FILE = PROJECT_ROOT / "results" / "raw" / "capt_kw.json"
 
 PAGE_TIMEOUT_MS = 60_000
-MAX_PAGES = 1  # يمكنك زيادتها حسب رغبتك
+MAX_PAGES = 20
 
 BLOCK_MARKERS = [
     "captcha",
@@ -36,10 +34,8 @@ def clean(value):
     return " ".join(str(value or "").split())
 
 def load_existing():
-    # --- DEDUP DISABLED (team decision: no cross-run dedup, every run
-    # is treated as fully fresh) --- original logic preserved below as
-    # dead code for easy re-enabling; just delete the line above it.
-    return []  # noqa: this line is INTENTIONAL, see comment above
+    # --- DEDUP DISABLED (team decision: every run is fully fresh, same as the other extractors) ---
+    return []  # noqa: this line is INTENTIONAL
     if not OUTPUT_FILE.exists():
         return []
     try:
@@ -113,6 +109,97 @@ def open_site(page, url):
                 page.wait_for_timeout(4_000)
     raise RuntimeError(f"Could not open CAPT site: {last_error}")
 
+# ============================================================
+# إضافة: فتح زر "المزيد" وسحب "اخر موعد للعطاء"
+# ============================================================
+CLOSE_LABEL_RE = re.compile(r"^[اآأإ]خر\s*موعد\s*للعطاء\s*:?\s*(.*)$")
+MORE_SELECTOR = "a:has-text('المزيد'), button:has-text('المزيد'), input[value*='المزيد']"
+
+
+def open_more(page, card):
+    """يضغط زر 'المزيد' داخل الكرت وينتظر ظهور لوحة 'البيانات'.
+    يرجّع نص اللوحة إذا كانت خارج الكرت (عنصر شقيق)، وإلا يرجّع ""."""
+    buttons = card.locator(MORE_SELECTOR)
+    btn = None
+    for k in range(buttons.count()):
+        try:
+            if buttons.nth(k).is_visible():
+                btn = buttons.nth(k)
+                break
+        except Exception:
+            pass
+    if btn is None:
+        return ""
+
+    try:
+        btn.scroll_into_view_if_needed()
+        btn.click(timeout=5_000)
+    except Exception:
+        # لو فيه عنصر فوقه يمنع الضغط
+        try:
+            btn.evaluate("el => el.click()")
+        except Exception:
+            return ""
+
+    # الحالة 1: اللوحة تنفتح داخل نفس الكرت
+    try:
+        card.get_by_text(re.compile(r"موعد\s*للعطاء")).first.wait_for(state="visible", timeout=5_000)
+        return ""
+    except Exception:
+        pass
+
+    # الحالة 2: اللوحة عنصر مستقل في الصفحة -> نأخذ أعمق عنصر ظاهر فيه التسمية
+    try:
+        panel = page.locator("div:visible, section:visible, table:visible",
+                             has_text=re.compile(r"[اآأإ]خر\s*موعد\s*للعطاء")).last
+        return panel.inner_text(timeout=3_000)
+    except Exception:
+        return ""
+
+
+def find_close_date(lines):
+    """يبحث عن 'اخر موعد للعطاء' بأي كتابة للألف (ا/آ/أ/إ)،
+    والقيمة إما في نفس السطر أو في السطر اللي بعده."""
+    for idx, line in enumerate(lines):
+        m = CLOSE_LABEL_RE.match(clean(line))
+        if not m:
+            continue
+        if m.group(1):
+            return clean(m.group(1))
+        if idx + 1 < len(lines):
+            return clean(lines[idx + 1])
+    return ""
+
+
+ALL_LABELS = {
+    "الرقم", "الجهة", "الموضوع", "تاريخ الطلب", "اخر موعد للعطاء", "آخر موعد للعطاء",
+    "تاريخ الإجتماع التمهيدي", "تاريخ الاجتماع التمهيدي", "النوع", "العروض البديلة",
+    "التجزئة", "ملاحظات", "السعر", "التأمين", "ملفات", "الشراء", "إغلاق", "البيانات",
+}
+
+
+def fix_record(record, lines):
+    """إضافة: يصلّح الحقول اللي الـ parser الأساسي يغلط فيها:
+    - Close Date: الموقع يكتب 'اخر' مو 'آخر'
+    - Notes/Document Price: لما 'ملاحظات' فاضية كان ياخذ كلمة 'السعر' كقيمة ويضيع السعر"""
+    lines = [clean(l) for l in lines if clean(l)]
+
+    def value_after(label):
+        for idx, line in enumerate(lines):
+            if line == label and idx + 1 < len(lines):
+                nxt = lines[idx + 1]
+                return "" if nxt in ALL_LABELS else nxt
+        return ""
+
+    if not record.get("Close Date"):
+        record["Close Date"] = find_close_date(lines)
+    if record.get("Notes") in ALL_LABELS:
+        record["Notes"] = value_after("ملاحظات")
+    if not record.get("Document Price"):
+        record["Document Price"] = value_after("السعر")
+    return record
+
+
 def extract_page(page, page_number):
     handle_terms_popup(page)
     
@@ -140,7 +227,10 @@ def extract_page(page, page_number):
             if "captTerms" in card_id:
                 continue
 
+            extra_text = open_more(page, card)  # إضافة: افتح "المزيد" أولاً
             full_text = card.inner_text().strip()
+            if extra_text and "موعد" not in full_text:
+                full_text = full_text + "\n" + extra_text
             if not full_text or len(full_text) <= 35:
                 continue
 
@@ -227,6 +317,14 @@ def extract_page(page, page_number):
                         elif key == "السعر": record["Document Price"] = clean(val)
                         elif key == "التأمين": record["Insurance"] = clean(val)
 
+            # إضافة: الموقع يكتب "اخر" بدون مدّة، والشرط فوق يدور على "آخر"
+            fix_record(record, lines)
+
+            # سجل وهمي من نافذة "البنود" (رقمه "الجهة" وما فيه تاريخ) -> نتجاهله.
+            # بدون هذا، شرط التوقف ما يشتغل لأن السجل ما فيه تاريخ.
+            if not record["Open Date"] or record["Tender Number"] in ALL_LABELS:
+                continue
+
             if record["Tender Number"] or record["Title"]:
                 records.append(record)
         except Exception:
@@ -245,6 +343,11 @@ def fingerprint(records):
 
 def run():
     existing = load_existing()
+    # إضافة: السجلات القديمة ما تنسحب مرة ثانية (dedupe بالرقم)، فنصلّحها من raw_text
+    for r in existing:
+        fix_record(r, str(r.get("raw_text", "")).split(" | "))
+    if existing:
+        save_atomic(existing)
     seen_ids = {record_key(r) for r in existing if record_key(r)}
     stored = list(existing)
     seen_pages = set()
@@ -253,29 +356,27 @@ def run():
     print(f"[{SOURCE_NAME}] Existing records: {len(existing)}")
 
     with sync_playwright() as playwright:
-        def prepare_first_page(page):
-            open_site(page, START_URL)
-            page.wait_for_timeout(3000)
-            return extract_page(page, 1)
-
-        browser, context, page, first_records = open_with_fallback(
-            playwright, source=SOURCE_NAME, prepare=prepare_first_page,
-            context_options={'locale': 'ar-KW', 'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36', 'viewport': {'width': 1440, 'height': 1100}},
-            timeout=PAGE_TIMEOUT_MS, preferred='chromium',
-            launch_options={'headless': True, 'args': ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']},
+        browser = playwright.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
         )
+        context = browser.new_context(
+            locale="ar-KW",
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            viewport={"width": 1440, "height": 1100}
+        )
+        page = context.new_page()
+        page.set_default_timeout(PAGE_TIMEOUT_MS)
 
         try:
             for page_number in range(1, MAX_PAGES + 1):
                 url = f"{START_URL}?page={page_number}" if page_number > 1 else START_URL
                 print(f"[{SOURCE_NAME}] Reading page {page_number}: {url}...")
 
-                if page_number == 1:
-                    records = first_records
-                else:
-                    open_site(page, url)
-                    page.wait_for_timeout(3000)
-                    records = extract_page(page, page_number)
+                open_site(page, url)
+                page.wait_for_timeout(3000)
+
+                records = extract_page(page, page_number)
 
                 if not records:
                     print(f"[{SOURCE_NAME}] No tenders found on page {page_number}. Stopping.")
@@ -312,15 +413,12 @@ def run():
                     f"new={page_new} | duplicates={page_duplicates}"
                 )
 
-                if page_new == 0 and page_number > 1:
-                    print(f"[{SOURCE_NAME}] No new records on page {page_number}. Ending pagination.")
-                    break
-
-                # Speed optimization: once a whole page's "Open Date" is
-                # confirmed before today, stop — safe by design if dates
-                # don't parse (simply won't trigger).
                 if all_records_before_today(records, "Open Date"):
                     print(f"[{SOURCE_NAME}] Reached yesterday's date — stopping early.")
+                    break
+
+                if page_new == 0 and page_number > 1:
+                    print(f"[{SOURCE_NAME}] No new records on page {page_number}. Ending pagination.")
                     break
 
         finally:

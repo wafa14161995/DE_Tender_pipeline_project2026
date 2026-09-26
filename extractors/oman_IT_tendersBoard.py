@@ -13,8 +13,10 @@ from playwright.sync_api import (
 
 if __package__:
     from ._browser_fallback import open_with_fallback
+    from ._date_utils import all_records_before_today
 else:
     from _browser_fallback import open_with_fallback
+    from _date_utils import all_records_before_today
 
 SOURCE_NAME = "oman_tenderboard"
 START_URL = "https://etendering.tenderboard.gov.om/product/publicDash?viewFlag=NewTenders"
@@ -23,7 +25,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 OUTPUT_FILE = PROJECT_ROOT / "results" / "raw" / "oman_T_tendersBoard.json"
 
 PAGE_TIMEOUT_MS = 60_000
-MAX_PAGES =46
+MAX_PAGES = 20
 
 BLOCK_MARKERS = [
     "captcha",
@@ -131,8 +133,49 @@ KNOWN_LABELS = DATE_LABELS + [
 def _looks_like_label(text):
     return any(label in text for label in KNOWN_LABELS)
 
+CLOSING_DETAIL_LABELS = [
+    "تاريخ إغلاق العطاء",
+    "تاريخ اغلاق العطاء",
+    "تاريخ إغلاق المناقصة",
+    "تاريخ اغلاق المناقصة",
+    "آخر موعد لتقديم العطاءات",
+    "Bid Closing Date",
+]
+SALES_END_DETAIL_LABELS = [
+    "تاريخ انتهاء شراء الكراسة",
+    "انتهاء شراء الكراسة",
+    "آخر موعد لشراء الكراسة",
+    "Sales End Date",
+    "Sales EndDate",
+]
+
+# الحقول اللي نبيها من صفحة التفاصيل: اسم الحقل -> التسميات المحتملة
+DETAIL_FIELDS = {
+    "تاريخ_طرح_المناقصة": DATE_LABELS,
+    "تاريخ_إغلاق_العطاء": CLOSING_DETAIL_LABELS,
+    "انتهاء_شراء_الكراسة": SALES_END_DETAIL_LABELS,
+}
+
+KNOWN_LABELS += CLOSING_DETAIL_LABELS + SALES_END_DETAIL_LABELS
+
+
+def _match_field(text):
+    for field, labels in DETAIL_FIELDS.items():
+        if any(label in text for label in labels):
+            return field
+    return None
+
+
+def _date_value(candidate):
+    """يرجع التاريخ فقط (بدون الوقت أو أي نص زايد)، أو "" إذا ما فيه تاريخ"""
+    if not candidate or _looks_like_label(candidate):
+        return ""
+    m = DATE_RE.search(candidate)
+    return m.group(0) if m else ""
+
+
 def extract_details_page(page):
-    """استخراج تاريخ طرح المناقصة فقط من صفحة التفاصيل"""
+    """استخراج تاريخ الطرح + تاريخ إغلاق العطاء + انتهاء شراء الكراسة من صفحة التفاصيل"""
     details = {}
     try:
         # الانتظار حتى تحميل الجدول أو محتوى التفاصيل في الصفحة الجديدة/المنبثقة
@@ -146,31 +189,34 @@ def extract_details_page(page):
             cell_count = row_cells.count()
 
             for ci in range(cell_count):
-                text = clean(row_cells.nth(ci).inner_text())
-                if not any(label in text for label in DATE_LABELS):
+                text = clean(row_cells.nth(ci).text_content())
+                # خلية طويلة = غالباً جدول خارجي يحتوي الصفحة كاملة، مو خلية تسمية
+                if len(text) > 80:
+                    continue
+                field = _match_field(text)
+                if field is None or field in details:
                     continue
 
-                value = ""
+                # المحاولة 0: التسمية والقيمة بنفس الخلية ("تاريخ إغلاق العطاء: 04-10-2026")
+                value = DATE_RE.search(text).group(0) if DATE_RE.search(text) else ""
 
                 # المحاولة 1: القيمة بنفس الصف، الخلية التالية
-                if ci + 1 < cell_count:
-                    candidate = clean(row_cells.nth(ci + 1).inner_text())
-                    if candidate and not _looks_like_label(candidate):
-                        value = candidate
+                if not value and ci + 1 < cell_count:
+                    value = _date_value(clean(row_cells.nth(ci + 1).text_content()))
 
                 # المحاولة 2: نفس رقم العمود لكن بالصف التالي (تسميات/قيم بصفين منفصلين)
                 if not value and r + 1 < row_count:
                     next_row_cells = rows.nth(r + 1).locator("td, th")
                     if ci < next_row_cells.count():
-                        candidate = clean(next_row_cells.nth(ci).inner_text())
-                        if candidate and not _looks_like_label(candidate):
-                            value = candidate
+                        value = _date_value(clean(next_row_cells.nth(ci).text_content()))
 
                 if value:
-                    details["تاريخ_طرح_المناقصة"] = value
-                    return details
+                    details[field] = value
+
+            if len(details) == len(DETAIL_FIELDS):
+                break
     except Exception as e:
-        print(f"[{SOURCE_NAME}] Notice: Could not extract issue date: {e}")
+        print(f"[{SOURCE_NAME}] Notice: Could not extract detail dates: {e}")
     return details
 
 def find_zoom(action_cell):
@@ -196,8 +242,8 @@ def open_details(page, cols):
 
     try:
         # الحالة 1: الأيقونة تفتح نافذة/تبويب جديد
-        with context.expect_page(timeout=5_000) as new_page_info:
-            zoom_icon.click(timeout=5_000)
+        with context.expect_page(timeout=15_000) as new_page_info:
+            zoom_icon.click(timeout=10_000)
         detail_page = new_page_info.value
         try:
             detail_page.wait_for_load_state("domcontentloaded")
@@ -220,6 +266,52 @@ def open_details(page, cols):
     page.wait_for_timeout(2_000)
     remove_overlays(page)
     return details
+
+# الموقع يعرض صيغتين:
+#   الإنجليزي: Sales EndDate:09-10-2026-Bid Closing Date:19-10-2026   (DD-MM-YYYY)
+#   العربي:    نهاية بيعالتاريخ:2026-09-29- تاريخ انتهاء تقديم العروض:2026-10-04   (YYYY-MM-DD)
+DATE_RE = re.compile(r"\d{4}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[-/]\d{1,2}[-/]\d{4}")
+SALES_LABELS = r"(?:Sales\s*End\s*Date|نهاية\s*بيع\s*(?:ال)?(?:تاريخ)?|انتهاء\s*شراء\s*الكراسة)"
+CLOSE_LABELS = r"(?:Bid\s*Closing\s*Date|تاريخ\s*انتهاء\s*تقديم\s*العروض|تاريخ\s*[إا]غلاق\s*العطاء)"
+
+
+def normalize_date(value):
+    """يوحّد التاريخ إلى DD-MM-YYYY مثل الصفحة الأولى، عشان الـ Silver يقرأ صيغة وحدة."""
+    if not value:
+        return ""
+    parts = re.split(r"[-/]", value)
+    if len(parts[0]) == 4:  # YYYY-MM-DD
+        y, m, d = parts
+    else:                   # DD-MM-YYYY
+        d, m, y = parts
+    return f"{int(d):02d}-{int(m):02d}-{y}"
+
+
+def parse_dates(text):
+    """يستخرج (انتهاء_شراء_الكراسة, تاريخ_إغلاق_العطاء) من نص عمود التواريخ.
+    لا يعتمد على شكل التسمية بالضبط (مسافات، عربي/إنجليزي، شرطة أو سطر جديد)."""
+    text = clean(text)
+    sales_end = ""
+    bid_close = ""
+
+    m = re.search(SALES_LABELS + r"\s*:?\s*(" + DATE_RE.pattern + ")", text, re.I)
+    if m:
+        sales_end = m.group(1)
+    m = re.search(CLOSE_LABELS + r"\s*:?\s*(" + DATE_RE.pattern + ")", text, re.I)
+    if m:
+        bid_close = m.group(1)
+
+    # إذا ما لقينا التسميات: الترتيب في الموقع دائماً (شراء الكراسة ثم الإغلاق)
+    if not (sales_end and bid_close):
+        found = DATE_RE.findall(text)
+        if len(found) >= 2:
+            sales_end = sales_end or found[-2]
+            bid_close = bid_close or found[-1]
+        elif len(found) == 1 and not (sales_end or bid_close):
+            bid_close = found[0]
+
+    return normalize_date(sales_end), normalize_date(bid_close)
+
 
 def extract_page(page, page_number):
     remove_overlays(page)
@@ -257,23 +349,14 @@ def extract_page(page, page_number):
 
             if first_cell.rstrip('.').isdigit():
                 dates_raw = col_texts[6] if len(col_texts) > 6 else ""
-                issue_date = ""
-                sales_end = ""
-                bid_close = ""
+                # inner_text() يرجع "" إذا النص مخفي بالـ CSS؛ text_content() يقرأه دائماً
+                if not DATE_RE.search(dates_raw) and cols.count() > 6:
+                    dates_raw = clean(cols.nth(6).text_content())
+                # آخر حل: ابحث في الصف كامل (لو تغيّر ترتيب الأعمدة)
+                if not DATE_RE.search(dates_raw):
+                    dates_raw = clean(row.text_content())
 
-                if dates_raw:
-                    left_part = dates_raw
-                    if "Bid Closing Date:" in dates_raw:
-                        parts = dates_raw.split("Bid Closing Date:")
-                        bid_close = parts[1].strip() if len(parts) > 1 else ""
-                        left_part = parts[0]
-
-                    if "Sales EndDate:" in left_part:
-                        sub_parts = left_part.split("Sales EndDate:")
-                        sales_end = sub_parts[1].strip("- ").strip()
-                        issue_date = sub_parts[0].replace("Publish Date:", "").replace("تاريخ الطرح:", "").strip("- ").strip()
-                    else:
-                        issue_date = left_part.strip("- ").strip()
+                sales_end, bid_close = parse_dates(dates_raw)
 
                 link = ""
                 link_el = row.locator("a")
@@ -292,6 +375,7 @@ def extract_page(page, page_number):
                     "انتهاء_شراء_الكراسة": sales_end,
                     "تاريخ_إغلاق_العطاء": bid_close,
                     "Link": link,
+                    "_dates_raw": dates_raw,  # للتشخيص: النص الخام لعمود التواريخ
                     "_source": SOURCE_NAME,
                     "_page": page_number,
                     "_extracted_at": extracted_at,
@@ -299,7 +383,12 @@ def extract_page(page, page_number):
 
                 # التفاعل مع أيقونة المكبر (عمود الإجراءات الأخير)
                 try:
-                    record.update(open_details(page, cols))
+                    details = open_details(page, cols)
+                    # إذا صفحة التفاصيل ما انفتحت (timeout) نعيد مرة وحدة
+                    if "تاريخ_طرح_المناقصة" not in details:
+                        page.wait_for_timeout(1_500)
+                        details = open_details(page, cols)
+                    record.update(details)
                     print(f"[{SOURCE_NAME}]   row {i+1}/{total_rows} on page {page_number}: تم فتح التفاصيل")
                 except Exception as detail_err:
                     print(f"[{SOURCE_NAME}] Could not open detail view for row {i}: {detail_err}")
@@ -436,6 +525,10 @@ def run():
                     f"[{SOURCE_NAME}] Page {page_number}: IT rows found={len(records)} | "
                     f"new added={page_new} | duplicates={page_duplicates}"
                 )
+
+                if all_records_before_today(records, "تاريخ_طرح_المناقصة"):
+                    print(f"[{SOURCE_NAME}] Reached yesterday's date — stopping early.")
+                    break
 
                 if page_number >= MAX_PAGES:
                     print(f"[{SOURCE_NAME}] Reached max pages limit: {MAX_PAGES}")
