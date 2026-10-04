@@ -1,4 +1,4 @@
-name: Build and Deploy to Azure Container Apps Job
+name: Build and Deploy to Azure Container Apps Job.
 
 on:
   push:
