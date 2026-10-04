@@ -4,7 +4,7 @@ An end-to-end data pipeline that collects public tenders from **10 tender source
 
 > **Source confidentiality (NDA).** The identities, URLs and endpoints of the data sources are covered by a non-disclosure agreement. They are **not** included in this repository. Every source is referred to by an anonymised alias (e.g. `sa_source_01`), and the real settings are supplied at runtime from a private, git-ignored configuration (see [Section 5](#5-api-keys-environment-variables-and-setup)).
 
-![Power BI dashboard](03_assets/powerbi_dashboard.png)
+![Power BI dashboard](powerbi_dashboard.png)
 
 *Power BI dashboard built on the Gold table.*
 
