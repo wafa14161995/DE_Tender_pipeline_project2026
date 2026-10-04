@@ -1,7 +1,9 @@
 if __package__:
     from ._date_utils import all_records_before_today
+    from ._sources_config import get_source_setting
 else:
     from _date_utils import all_records_before_today
+    from _sources_config import get_source_setting
 
 import json
 import re
@@ -12,11 +14,14 @@ from pathlib import Path
 from urllib.parse import urljoin
 
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
-SOURCE_NAME = "capt_kw"
-START_URL = "https://capt.gov.kw/ar/tenders/opening-tenders/"
+SOURCE_NAME = "kw_source_01"
+# Real URL + site-specific popup ids are private (NDA) -> config/sources.local.json
+START_URL = get_source_setting(SOURCE_NAME, "start_url")
+TERMS_POPUP_ID = get_source_setting(SOURCE_NAME, "terms_popup_id", default="terms-popup")
+TERMS_POPUP_CLASS = get_source_setting(SOURCE_NAME, "terms_popup_class", default="terms-popup")
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-OUTPUT_FILE = PROJECT_ROOT / "results" / "raw" / "capt_kw.json"
+OUTPUT_FILE = PROJECT_ROOT / "results" / "raw" / f"{SOURCE_NAME}.json"
 
 PAGE_TIMEOUT_MS = 60_000
 MAX_PAGES = 20
@@ -70,18 +75,18 @@ def check_block(page):
 def handle_terms_popup(page):
     """إغلاق نافذة الشروط والأحكام المنبثقة إن ظهرت لتمكين التفاعل مع الصفحة"""
     try:
-        terms_btn = page.locator("#captTerms button, #captTerms input[type='button'], .capt-terms-popup button, .b-modal")
+        terms_btn = page.locator(f"#{TERMS_POPUP_ID} button, #{TERMS_POPUP_ID} input[type='button'], .{TERMS_POPUP_CLASS} button, .b-modal")
         if terms_btn.count() > 0 and terms_btn.first.is_visible():
-            agree_btn = page.locator("#captTerms .button-row button, #captTerms button:has-text('موافق'), #captTerms button:has-text('إغلاق')")
+            agree_btn = page.locator(f"#{TERMS_POPUP_ID} .button-row button, #{TERMS_POPUP_ID} button:has-text('موافق'), #{TERMS_POPUP_ID} button:has-text('إغلاق')")
             if agree_btn.count() > 0:
                 agree_btn.first.click()
             else:
-                page.evaluate("""() => {
+                page.evaluate("""(popupId) => {
                     const modal = document.querySelector('.b-modal');
-                    const popup = document.querySelector('#captTerms');
+                    const popup = document.getElementById(popupId);
                     if (modal) modal.remove();
                     if (popup) popup.remove();
-                }""")
+                }""", TERMS_POPUP_ID)
             time.sleep(1)
     except Exception:
         pass
@@ -107,7 +112,7 @@ def open_site(page, url):
             print(f"[{SOURCE_NAME}] Open failed: {exc}")
             if attempt < 3:
                 page.wait_for_timeout(4_000)
-    raise RuntimeError(f"Could not open CAPT site: {last_error}")
+    raise RuntimeError(f"Could not open source site: {last_error}")
 
 # ============================================================
 # إضافة: فتح زر "المزيد" وسحب "اخر موعد للعطاء"
@@ -224,7 +229,7 @@ def extract_page(page, page_number):
         card = cards.nth(i)
         try:
             card_id = card.get_attribute("id") or ""
-            if "captTerms" in card_id:
+            if TERMS_POPUP_ID in card_id:
                 continue
 
             extra_text = open_more(page, card)  # إضافة: افتح "المزيد" أولاً

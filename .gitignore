@@ -6,3 +6,8 @@ __pycache__/
 venv/
 .env
 .DS_Store
+
+# Private source config (NDA) -- never commit
+config/sources.local.json
+*.local.json
+PRIVATE_DO_NOT_COMMIT/

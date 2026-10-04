@@ -16,6 +16,15 @@ else:
         scope="azure-storage",
         key="connection-string"
     )
+    # Private source URLs (NDA) -- stored as one JSON secret, never in git.
+    # Extractors inherit this env var because they run as subprocesses.
+    try:
+        os.environ.setdefault(
+            "TENDER_SOURCES_JSON",
+            dbutils.secrets.get(scope="tender-sources", key="config"),
+        )
+    except Exception:
+        pass
 
 import azure_upload
 
@@ -90,7 +99,7 @@ def main():
     for extractor in extractors:
         print(" -", extractor.name)
 
-    #  NUM_THREADS to use multi threads to run the 10 portals.
+    #  NUM_THREADS to use multi threads to run the 10 sources.
     NUM_THREADS = 4
     batches = [[] for _ in range(NUM_THREADS)]
     for i, extractor in enumerate(extractors):

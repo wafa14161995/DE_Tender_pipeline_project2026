@@ -14,15 +14,18 @@ from playwright.sync_api import (
 if __package__:
     from ._browser_fallback import open_with_fallback
     from ._date_utils import all_records_before_today
+    from ._sources_config import get_source_setting
 else:
     from _browser_fallback import open_with_fallback
     from _date_utils import all_records_before_today
+    from _sources_config import get_source_setting
 
-SOURCE_NAME = "oman_tenderboard"
-START_URL = "https://etendering.tenderboard.gov.om/product/publicDash?viewFlag=NewTenders"
+SOURCE_NAME = "om_source_01"
+# Real URL is private (NDA) -> config/sources.local.json
+START_URL = get_source_setting(SOURCE_NAME, "start_url")
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-OUTPUT_FILE = PROJECT_ROOT / "results" / "raw" / "oman_T_tendersBoard.json"
+OUTPUT_FILE = PROJECT_ROOT / "results" / "raw" / f"{SOURCE_NAME}.json"
 
 PAGE_TIMEOUT_MS = 60_000
 MAX_PAGES = 20
@@ -110,7 +113,7 @@ def open_site(page, url):
             print(f"[{SOURCE_NAME}] Open failed: {exc}")
             if attempt < 3:
                 page.wait_for_timeout(4_000)
-    raise RuntimeError(f"Could not open Oman Tender Board site: {last_error}")
+    raise RuntimeError(f"Could not open source site: {last_error}")
 
 DATE_LABELS = [
     "تاريخ طرح المناقصة",

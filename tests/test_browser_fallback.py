@@ -1,9 +1,17 @@
+import json
+import os
 import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+# Tests run offline with a dummy private config (real URLs are under NDA).
+os.environ.setdefault(
+    "TENDER_SOURCES_JSON",
+    json.dumps({"qa_source_01": {"base_url": "https://example.invalid/"}}),
+)
+
 from extractors._browser_fallback import open_with_fallback
-from extractors import qatar_finance
+from extractors import qa_source_01 as paged_source
 
 
 class BrowserFallbackTests(unittest.TestCase):
@@ -59,7 +67,7 @@ class BrowserFallbackTests(unittest.TestCase):
         self.assertEqual(self.engines['chromium'].launch.call_args.kwargs['channel'], 'chrome')
         self.engines['webkit'].launch.assert_not_called()
 
-    def test_finance_fallback_reuses_first_page_then_continues(self):
+    def test_paged_source_fallback_reuses_first_page_then_continues(self):
         calls = []
         def extract(page, number):
             calls.append((page.engine_name, number))
@@ -68,10 +76,10 @@ class BrowserFallbackTests(unittest.TestCase):
             return [{'id': 'new'}] if number == 1 else []
         manager = MagicMock()
         manager.__enter__.return_value = self.playwright
-        with patch.object(qatar_finance, 'sync_playwright', return_value=manager), \
-             patch.object(qatar_finance, 'extract_page', side_effect=extract), \
-             patch.object(qatar_finance, 'record_key', side_effect=lambda r: r['id']):
-            rows, pages = qatar_finance.scrape_all_pages(set())
+        with patch.object(paged_source, 'sync_playwright', return_value=manager), \
+             patch.object(paged_source, 'extract_page', side_effect=extract), \
+             patch.object(paged_source, 'record_key', side_effect=lambda r: r['id']):
+            rows, pages = paged_source.scrape_all_pages(set())
         self.assertEqual(rows, [{'id': 'new'}])
         self.assertEqual(pages, 1)
         self.assertEqual(calls, [('chromium', 1), ('webkit', 1), ('webkit', 2)])

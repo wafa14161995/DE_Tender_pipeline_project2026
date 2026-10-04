@@ -1,7 +1,9 @@
 if __package__:
     from ._date_utils import all_records_before_today
+    from ._sources_config import get_source_setting
 else:
     from _date_utils import all_records_before_today
+    from _sources_config import get_source_setting
 
 import json
 import sys
@@ -12,12 +14,14 @@ from pathlib import Path
 import requests
 
 
-SOURCE_NAME = "ksa_forsah"
+SOURCE_NAME = "sa_source_02"
 
 # NOTE: this is an undocumented API, found via browser network capture,
 # not an officially published endpoint. Same caveat as noted elsewhere in
 # السورس ماخخوذ من جيسون فايل موجود في الباكاند يتحدث مع كل مناقصه جديده تنوجد في الفرونت اند 
-API_URL = "https://forsah-api.910ths.sa/api/v1/opportunities"
+# Real endpoint is private (NDA) -> config/sources.local.json
+API_URL = get_source_setting(SOURCE_NAME, "api_url")
+DETAIL_URL_TEMPLATE = get_source_setting(SOURCE_NAME, "detail_url_template")
 
 # --- FILTER DISABLED (team decision: bronze layer should be fully raw) ---
 # IT-related category filter, confirmed working in earlier testing.
@@ -38,7 +42,7 @@ OUTPUT_FILE = (
     PROJECT_ROOT
     / "results"
     / "raw"
-    / "forsah.json"
+    / f"{SOURCE_NAME}.json"
 )
 
 DEBUG_DIR = (
@@ -74,12 +78,12 @@ def load_existing_records():
 
     except Exception as exc:
         raise RuntimeError(
-            f"Could not read existing Forsah JSON: {exc}"
+            f"Could not read existing source JSON: {exc}"
         ) from exc
 
     if not isinstance(data, list):
         raise RuntimeError(
-            "forsah.json must contain a JSON list."
+            f"{SOURCE_NAME}.json must contain a JSON list."
         )
 
     return data
@@ -177,7 +181,7 @@ def parse_response(payload, page_number):
             "Closing Date": clean(item.get("closeDate")),
 
             "Detail URL":
-                f"https://forsah.sa/marketplace/opportunities/{item_id}",
+                DETAIL_URL_TEMPLATE.format(item_id=item_id),
 
             "Status": clean(item.get("statusKey")),
 
@@ -247,7 +251,7 @@ def scrape_all_pages(existing_records):
         if response.status_code >= 400:
 
             save_debug(
-                f"forsah_page{page_number}_error",
+                f"{SOURCE_NAME}_page{page_number}_error",
                 response.text[:2000]
             )
 
@@ -261,7 +265,7 @@ def scrape_all_pages(existing_records):
 
         except ValueError as exc:
             save_debug(
-                f"forsah_page{page_number}_bad_json",
+                f"{SOURCE_NAME}_page{page_number}_bad_json",
                 response.text[:2000]
             )
             raise RuntimeError(
@@ -304,7 +308,7 @@ def scrape_all_pages(existing_records):
             print(f"[{SOURCE_NAME}] Reached last page ({page_count}).")
             break
 
-        # Forsah lists newest-first, so a fully-duplicate page means
+        # The source lists newest-first, so a fully-duplicate page means
         # everything after it is old too — stop early.
          #يشوف اخر اي دي اذا موجود يوقف سكرابنق 
 
@@ -312,7 +316,7 @@ def scrape_all_pages(existing_records):
             print(f"[{SOURCE_NAME}] Page fully duplicate — stopping early.")
             break
 
-        # Speed optimization: Forsah lists newest-first, so once a whole
+        # Speed optimization: The source lists newest-first, so once a whole
         # page's "Published Date" is confirmed to be before today, every
         # page after it is too — stop, since only today's data matters
         # for the archive/Blob upload anyway. Safe by design: if any

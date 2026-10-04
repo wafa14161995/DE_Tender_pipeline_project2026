@@ -1,9 +1,11 @@
 if __package__:
     from ._browser_fallback import open_with_fallback
     from ._date_utils import all_records_before_today
+    from ._sources_config import get_source_setting
 else:
     from _browser_fallback import open_with_fallback
     from _date_utils import all_records_before_today
+    from _sources_config import get_source_setting
 
 import json
 import re
@@ -23,9 +25,10 @@ from playwright.sync_api import (
 # SOURCE
 # ============================================================
 
-SOURCE_NAME = "qatar_foundation"
+SOURCE_NAME = "qa_source_02"
 
-START_URL = "https://suppliers.qf.org.qa/abstract"
+# Real URL is private (NDA) -> config/sources.local.json
+START_URL = get_source_setting(SOURCE_NAME, "start_url")
 
 
 # ============================================================
@@ -38,7 +41,7 @@ OUTPUT_FILE = (
     PROJECT_ROOT
     / "results"
     / "raw"
-    / "qatar_foundation.json"
+    / f"{SOURCE_NAME}.json"
 )
 
 
@@ -77,11 +80,11 @@ BLOCK_MARKERS = [
 
 # مثال:
 #
-# CO-RFQ-530
-# PUE-RFQ-386
-# PUE-RFQ-381,1
-# QF-RFQ-1409
-# HBKU-RFQ-2377
+# AB-RFQ-530
+# CDE-RFQ-386
+# CDE-RFQ-381,1
+# XY-RFQ-1409
+# WXYZ-RFQ-2377
 
 NEGOTIATION_NUMBER_PATTERN = (
     r"[A-Z][A-Z0-9]*-"
@@ -342,7 +345,7 @@ def check_block(page):
         if marker in text:
 
             raise RuntimeError(
-                "Possible Qatar Foundation "
+                f"Possible {SOURCE_NAME} "
                 "access restriction: "
                 f"{marker}"
             )
@@ -608,7 +611,7 @@ def wait_for_records(
 
 
     raise RuntimeError(
-        "Qatar Foundation page loaded, "
+        f"{SOURCE_NAME} page loaded, "
         "but no individual tender records "
         "could be parsed."
     )
@@ -926,7 +929,7 @@ def run():
                 if not current_fingerprint:
 
                     raise RuntimeError(
-                        "No valid Qatar Foundation "
+                        f"No valid {SOURCE_NAME} "
                         "tenders found."
                     )
 

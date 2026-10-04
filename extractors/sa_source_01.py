@@ -1,7 +1,9 @@
 if __package__:
     from ._date_utils import all_records_before_today
+    from ._sources_config import get_source_setting
 else:
     from _date_utils import all_records_before_today
+    from _sources_config import get_source_setting
 
 import json
 import sys
@@ -13,16 +15,17 @@ from pathlib import Path
 import requests
 
 
-SOURCE_NAME = "ksa_etimad"
+SOURCE_NAME = "sa_source_01"
 
 # NOTE: undocumented endpoint, found via browser network capture
 # (DevTools → Network → Fetch/XHR → click page 2 in the pagination).
 # ⚠️ تأكدي من الرابط والـ parameters من تبويب Headers → Request URL
-API_URL = "https://tenders.etimad.sa/Tender/AllSupplierTendersForVisitorAsync"
-REFERER = "https://tenders.etimad.sa/Tender/AllTendersForVisitor"
+# Real endpoint + referer are private (NDA) -> config/sources.local.json
+API_URL = get_source_setting(SOURCE_NAME, "api_url")
+REFERER = get_source_setting(SOURCE_NAME, "referer_url")
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-OUTPUT_FILE = PROJECT_ROOT / "results" / "raw" / "etimad.json"
+OUTPUT_FILE = PROJECT_ROOT / "results" / "raw" / f"{SOURCE_NAME}.json"
 DEBUG_DIR = PROJECT_ROOT / "results" / "debug"
 
 REQUEST_TIMEOUT_S = 30
@@ -125,14 +128,14 @@ def fetch_page(session, page_number):
             continue
 
         if response.status_code >= 400:
-            save_debug(f"etimad_page{page_number}_error", response.text[:3000])
+            save_debug(f"{SOURCE_NAME}_page{page_number}_error", response.text[:3000])
             raise RuntimeError(f"HTTP error {response.status_code} on page {page_number}")
 
         try:
             return response.json()
         except ValueError:
             # غالباً صفحة CAPTCHA بدل JSON
-            save_debug(f"etimad_page{page_number}_not_json", response.text[:3000])
+            save_debug(f"{SOURCE_NAME}_page{page_number}_not_json", response.text[:3000])
             raise RuntimeError(
                 f"Non-JSON response on page {page_number} "
                 f"(possibly CAPTCHA). See results/debug/."

@@ -5,6 +5,8 @@ services:
 
     volumes:
       - ./results:/app/results
+      # Private source config (NDA) is mounted read-only, not copied into the image
+      - ./config/sources.local.json:/app/config/sources.local.json:ro
 
     environment:
       - AZURE_STORAGE_CONNECTION_STRING=${AZURE_STORAGE_CONNECTION_STRING}

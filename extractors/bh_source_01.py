@@ -1,7 +1,9 @@
 if __package__:
     from ._date_utils import all_records_before_today
+    from ._sources_config import get_source_setting
 else:
     from _date_utils import all_records_before_today
+    from _sources_config import get_source_setting
 
 import json
 import re
@@ -27,12 +29,10 @@ from playwright.sync_api import (
 # SOURCE
 # ============================================================
 
-SOURCE_NAME = "bahrain_tender_board"
+SOURCE_NAME = "bh_source_01"
 
-START_URL = (
-    "https://www.tenderboard.gov.bh/"
-    "Tenders/PublicTenders/"
-)
+# Real URL is private (NDA) -> config/sources.local.json
+START_URL = get_source_setting(SOURCE_NAME, "start_url")
 
 
 # ============================================================
@@ -50,7 +50,7 @@ OUTPUT_FILE = (
     PROJECT_ROOT
     / "results"
     / "raw"
-    / "bahrain.json"
+    / f"{SOURCE_NAME}.json"
 )
 
 DEBUG_DIR = (
@@ -326,7 +326,7 @@ def check_block(page):
 
             save_debug(
                 page,
-                "bahrain_access_restricted",
+                f"{SOURCE_NAME}_access_restricted",
             )
 
 
@@ -684,7 +684,7 @@ def wait_for_rows(
 
                 save_debug(
                     page,
-                    "bahrain_error_popup",
+                    f"{SOURCE_NAME}_error_popup",
                 )
 
 
@@ -721,7 +721,7 @@ def wait_for_rows(
 
     save_debug(
         page,
-        "bahrain_rows_timeout",
+        f"{SOURCE_NAME}_rows_timeout",
     )
 
 
@@ -1489,7 +1489,7 @@ def next_page(
     save_debug(
         page,
         (
-            "bahrain_pagination_"
+            f"{SOURCE_NAME}_pagination_"
             f"after_{current_page}"
         ),
     )

@@ -78,12 +78,17 @@ jobs:
             echo "Job already exists — will update it below."
           fi
 
-      - name: Set/update the Blob storage secret
+      # TENDER_SOURCES_JSON holds the private source URLs (NDA). It lives only
+      # in GitHub Secrets / the Container Apps secret store, never in the repo.
+      - name: Set/update the Blob storage and source-config secrets
+        env:
+          TENDER_SOURCES_JSON: ${{ secrets.TENDER_SOURCES_JSON }}
         run: |
           az containerapp job secret set \
             --name "$JOB_NAME" \
             --resource-group "$RESOURCE_GROUP" \
-            --secrets azstorageconn="${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}"
+            --secrets azstorageconn="${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}" \
+                      tendersources="$TENDER_SOURCES_JSON"
 
       # NOTE: this OVERWRITES whatever env vars were previously set on this
       # job (e.g. if it was previously running the old Node.js/SQL version).
@@ -95,4 +100,5 @@ jobs:
             --image "${IMAGE_NAME}:${{ github.sha }}" \
             --set-env-vars \
               AZURE_STORAGE_CONNECTION_STRING=secretref:azstorageconn \
+              TENDER_SOURCES_JSON=secretref:tendersources \
               BLOB_CONTAINER_NAME="${{ secrets.BLOB_CONTAINER_NAME }}"

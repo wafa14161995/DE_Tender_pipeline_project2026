@@ -1,9 +1,11 @@
 if __package__:
     from ._browser_fallback import open_with_fallback
     from ._date_utils import all_records_before_today
+    from ._sources_config import get_source_setting
 else:
     from _browser_fallback import open_with_fallback
     from _date_utils import all_records_before_today
+    from _sources_config import get_source_setting
 
 import json
 import re
@@ -19,13 +21,10 @@ from playwright.sync_api import (
 )
 
 
-SOURCE_NAME = "uae_mof"
+SOURCE_NAME = "ae_source_01"
 
-START_URL = (
-    "https://mof.gov.ae/en/public-finance/"
-    "government-procurement/"
-    "current-business-opportunities/"
-)
+# Real URL is private (NDA) -> config/sources.local.json
+START_URL = get_source_setting(SOURCE_NAME, "start_url")
 
 PROJECT_ROOT = (
     Path(__file__)
@@ -38,7 +37,7 @@ OUTPUT_FILE = (
     PROJECT_ROOT
     / "results"
     / "raw"
-    / "uae_mof.json"
+    / f"{SOURCE_NAME}.json"
 )
 
 PAGE_TIMEOUT_MS = 60_000
@@ -93,7 +92,7 @@ def load_existing():
     ):
 
         raise RuntimeError(
-            "uae_mof.json must "
+            f"{SOURCE_NAME}.json must "
             "contain a JSON list"
         )
 
@@ -252,7 +251,7 @@ def wait_for_table(page):
         )
 
     raise RuntimeError(
-        "UAE MoF tender table "
+        "Source tender table "
         "did not appear before timeout"
     )
 
@@ -696,7 +695,7 @@ def open_site(page):
                 )
 
     raise RuntimeError(
-        f"Could not open UAE MoF: "
+        f"Could not open {SOURCE_NAME}: "
         f"{last_error}"
     )
 

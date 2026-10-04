@@ -422,16 +422,16 @@ if missing_globals:
 # ============================================================
 
 TARGET_SOURCES = [
-    "bahrain",
-    "capt_kw",
-    "etimad",
-    "forsah",
-    "oman_T_tendersBoard",
-    "qatar",
-    "qatar_foundation",
-    "qatar_monaqasat",
-    "uae_global",
-    "uae_mof",
+    "bh_source_01",
+    "kw_source_01",
+    "sa_source_01",
+    "sa_source_02",
+    "om_source_01",
+    "qa_source_03",
+    "qa_source_02",
+    "qa_source_01",
+    "ae_source_02",
+    "ae_source_01",
 ]
 
 TARGET_SOURCE_SET = set(TARGET_SOURCES)
@@ -2258,7 +2258,7 @@ def classify_tender(record, source):
     # Oman exposes an explicit procurement category for IT services.
     # Trust that exact source category only after explicit Non-Tech title
     # rules have already had a chance to reject physical/fire/CCTV/etc.
-    if source == "oman_T_tendersBoard" and oman_it_category(record):
+    if source == "om_source_01" and oman_it_category(record):
         return (
             "Technology",
             "source_it_category",
@@ -2488,10 +2488,10 @@ qa_samples = []
 
 # Sources that need the closest inspection
 QA_SOURCES = [
-    "oman_T_tendersBoard",
-    "capt_kw",
-    "bahrain",
-    "forsah",
+    "om_source_01",
+    "kw_source_01",
+    "bh_source_01",
+    "sa_source_02",
 ]
 
 
@@ -2606,43 +2606,43 @@ CANONICAL_SCHEMA = [
 # ============================================================
 
 SOURCE_METADATA = {
-    "bahrain": {
+    "bh_source_01": {
         "country": "Bahrain",
         "default_currency": "BHD",
     },
-    "capt_kw": {
+    "kw_source_01": {
         "country": "Kuwait",
         "default_currency": "KWD",
     },
-    "etimad": {
+    "sa_source_01": {
         "country": "Saudi Arabia",
         "default_currency": "SAR",
     },
-    "forsah": {
+    "sa_source_02": {
         "country": "Saudi Arabia",
         "default_currency": "SAR",
     },
-    "oman_T_tendersBoard": {
+    "om_source_01": {
         "country": "Oman",
         "default_currency": "OMR",
     },
-    "qatar": {
+    "qa_source_03": {
         "country": "Qatar",
         "default_currency": "QAR",
     },
-    "qatar_foundation": {
+    "qa_source_02": {
         "country": "Qatar",
         "default_currency": "QAR",
     },
-    "qatar_monaqasat": {
+    "qa_source_01": {
         "country": "Qatar",
         "default_currency": "QAR",
     },
-    "uae_global": {
+    "ae_source_02": {
         "country": "United Arab Emirates",
         "default_currency": "AED",
     },
-    "uae_mof": {
+    "ae_source_01": {
         "country": "United Arab Emirates",
         "default_currency": "AED",
     },
@@ -2673,7 +2673,7 @@ FX_RATES_TO_SAR = {
 # ============================================================
 
 COLUMN_MAP = {
-    "bahrain": {
+    "bh_source_01": {
         "tender_number": ["Tender Number", "No."],
         "title": ["Tender Subject", "No./Tender Subject"],
         "authority": ["Purchasing Authority"],
@@ -2690,7 +2690,7 @@ COLUMN_MAP = {
         "source_url": ["Detail URL"],
     },
 
-    "capt_kw": {
+    "kw_source_01": {
         "tender_number": ["Tender Number"],
         "title": ["Title"],
         "authority": ["Entity Name"],
@@ -2707,7 +2707,7 @@ COLUMN_MAP = {
         "source_url": ["Link"],
     },
 
-    "etimad": {
+    "sa_source_01": {
         "tender_number": ["Item ID"],
         "title": ["Title"],
         "authority": ["Agency"],
@@ -2724,7 +2724,7 @@ COLUMN_MAP = {
         "source_url": ["Detail URL"],
     },
 
-    "forsah": {
+    "sa_source_02": {
         "tender_number": ["Item ID"],
         "title": ["Title"],
         "authority": [],
@@ -2742,7 +2742,7 @@ COLUMN_MAP = {
         "source_url": ["Detail URL"],
     },
 
-    "oman_T_tendersBoard": {
+    "om_source_01": {
         "tender_number": ["رقم_المناقصة"],
         "title": ["عنوان_المناقصة"],
         "authority": ["الجهة_الحكومية"],
@@ -2759,7 +2759,7 @@ COLUMN_MAP = {
         "source_url": ["Link"],
     },
 
-    "qatar": {
+    "qa_source_03": {
         "tender_number": ["Item ID"],
         "title": ["Title"],
         "authority": [],
@@ -2776,7 +2776,7 @@ COLUMN_MAP = {
         "source_url": ["Detail URL"],
     },
 
-    "qatar_foundation": {
+    "qa_source_02": {
         "tender_number": ["Negotiation Number"],
         "title": ["Title"],
         "authority": [],
@@ -2793,7 +2793,7 @@ COLUMN_MAP = {
         "source_url": [],
     },
 
-    "qatar_monaqasat": {
+    "qa_source_01": {
         "tender_number": ["رقم المناقصة"],
         "title": ["موضوع المناقصة"],
         "authority": ["الجهة"],
@@ -2810,7 +2810,7 @@ COLUMN_MAP = {
         "source_url": ["_page_url"],
     },
 
-    "uae_global": {
+    "ae_source_02": {
         "tender_number": ["Item ID"],
         "title": ["Title"],
         "authority": [],
@@ -2827,7 +2827,7 @@ COLUMN_MAP = {
         "source_url": ["Detail URL"],
     },
 
-    "uae_mof": {
+    "ae_source_01": {
         "tender_number": ["RFQ Number"],
         "title": ["Title"],
         "authority": ["Entity Name"],
@@ -3134,22 +3134,63 @@ def row_to_json(row):
 
 # ============================================================
 # 11b. SOURCE URL FALLBACKS
-# The Etimad API does not return a detail link; build it from the
+# sa_source_01 does not return a detail link; build it from the
 # encrypted tender id it does return ("Tender ID String").
+# The real URL prefix is private (NDA) and is read at runtime from:
+#   1) env SA_SOURCE_01_DETAIL_URL_PREFIX
+#   2) env TENDER_SOURCES_JSON (full private config as JSON)
+#   3) Databricks secret scope "tender-sources" / key "config" (same JSON)
+#   4) file TENDER_SOURCES_CONFIG or ./config/sources.local.json
+# If none is set, the link is simply left empty.
 # ============================================================
 
-ETIMAD_DETAIL_URL = "https://tenders.etimad.sa/Tender/DetailsForVisitor?STenderId="
+def _private_source_setting(alias, key):
+    import json as _json
+
+    env_value = os.getenv(f"{alias}_{key}".upper(), "").strip()
+    if env_value:
+        return env_value
+
+    raw = os.getenv("TENDER_SOURCES_JSON", "").strip()
+    if not raw:
+        try:
+            raw = dbutils.secrets.get(scope="tender-sources", key="config")
+        except Exception:
+            raw = ""
+    if not raw:
+        config_path = Path(
+            os.getenv("TENDER_SOURCES_CONFIG", "") or "config/sources.local.json"
+        )
+        if config_path.exists():
+            raw = config_path.read_text(encoding="utf-8")
+    if not raw:
+        return ""
+
+    try:
+        return str((_json.loads(raw).get(alias) or {}).get(key) or "").strip()
+    except Exception:
+        return ""
+
+
+SA_SOURCE_01_DETAIL_URL = _private_source_setting(
+    "sa_source_01", "detail_url_prefix"
+)
+if not SA_SOURCE_01_DETAIL_URL:
+    print(
+        "WARNING: sa_source_01 detail_url_prefix not configured -- "
+        "detail links for that source will stay empty."
+    )
 
 
 def build_source_url(row, source):
-    if source == "etimad":
+    if source == "sa_source_01" and SA_SOURCE_01_DETAIL_URL:
         existing = standard_scalar(row.get("Detail URL"))
         if existing:
             return None  # keep the scraped link
         token = standard_scalar(row.get("Tender ID String"))
         if token:
             from urllib.parse import quote
-            return ETIMAD_DETAIL_URL + quote(str(token), safe="")
+            return SA_SOURCE_01_DETAIL_URL + quote(str(token), safe="")
     return None
 
 
@@ -3202,7 +3243,7 @@ for source, source_df in classified_dfs.items():
         # Kuwait source repair from raw_text
         # ----------------------------------------------------
 
-        if source == "capt_kw":
+        if source == "kw_source_01":
             kuwait_fields = recover_kuwait_fields(row)
 
             if closing_date is None:
@@ -3706,7 +3747,7 @@ source_standardization_report = (
 # ============================================================
 
 kuwait_verification = standardized_silver_df[
-    standardized_silver_df["source"].eq("capt_kw")
+    standardized_silver_df["source"].eq("kw_source_01")
 ][
     [
         "tender_number",
@@ -3994,15 +4035,15 @@ cleaned_silver_df["closing_date_raw"] = (
 # ============================================================
 
 DATE_FORMATS = {
-    "bahrain": {
+    "bh_source_01": {
         "published": ["%d, %b,%Y", "%d %b %Y", "%d %b,%Y"],
         "closing": ["%d %b,%Y", "%d, %b,%Y", "%d %b %Y"],
     },
-    "capt_kw": {
+    "kw_source_01": {
         "published": ["%B %d, %Y", "%b %d, %Y"],
         "closing": ["%B %d, %Y", "%b %d, %Y"],
     },
-    "etimad": {
+    "sa_source_01": {
         # Old HTML scraper: "2026-09-23 09:59"; new API: "2026-09-23T09:59:00"
         "published": [
             "%Y-%m-%d", "%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S",
@@ -4013,33 +4054,33 @@ DATE_FORMATS = {
             "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M",
         ],
     },
-    "forsah": {
+    "sa_source_02": {
         "published": ["%Y-%m-%d", "%Y-%m-%d %H:%M:%S"],
         "closing": ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d"],
     },
-    "oman_T_tendersBoard": {
+    "om_source_01": {
         # List page is normalized to DD-MM-YYYY by the extractor, but values
         # from the detail page are stored as shown (YYYY-MM-DD or with "/").
         "published": ["%d-%m-%Y", "%Y-%m-%d", "%d/%m/%Y", "%Y/%m/%d"],
         "closing": ["%d-%m-%Y", "%Y-%m-%d", "%d/%m/%Y", "%Y/%m/%d"],
     },
-    "qatar": {
+    "qa_source_03": {
         "published": ["%d %b %Y", "%d %B %Y"],
         "closing": ["%d %b %Y", "%d %B %Y"],
     },
-    "qatar_foundation": {
+    "qa_source_02": {
         "published": ["%d-%b-%Y %I:%M %p", "%d-%b-%Y"],
         "closing": ["%d-%b-%Y %I:%M %p", "%d-%b-%Y"],
     },
-    "qatar_monaqasat": {
+    "qa_source_01": {
         "published": ["%d/%m/%Y", "%d/%m/%Y %H:%M:%S"],
         "closing": ["%d/%m/%Y", "%d/%m/%Y %H:%M:%S"],
     },
-    "uae_global": {
+    "ae_source_02": {
         "published": ["%d %b %Y", "%d %B %Y"],
         "closing": ["%d %b %Y", "%d %B %Y"],
     },
-    "uae_mof": {
+    "ae_source_01": {
         "published": ["%d/%m/%Y %I:%M:%S %p", "%d/%m/%Y"],
         "closing": ["%d/%m/%Y %I:%M:%S %p", "%d/%m/%Y"],
     },
@@ -4810,16 +4851,16 @@ work_df["tender_id"] = work_df["business_key"].map(sha24)
 # - A short deterministic suffix from tender_id keeps the display code unique
 #   and stable across rebuild/incremental runs.
 SOURCE_PREFIX = {
-    "etimad": "ETM",
-    "forsah": "FOR",
-    "bahrain": "BHR",
-    "capt_kw": "KWT",
-    "oman_T_tendersBoard": "OMN",
-    "qatar": "QAT",
-    "qatar_foundation": "QF",
-    "qatar_monaqasat": "QMN",
-    "uae_global": "UAEG",
-    "uae_mof": "UAEM",
+    "sa_source_01": "SA1",
+    "sa_source_02": "SA2",
+    "bh_source_01": "BH1",
+    "kw_source_01": "KW1",
+    "om_source_01": "OM1",
+    "qa_source_03": "QA3",
+    "qa_source_02": "QA2",
+    "qa_source_01": "QA1",
+    "ae_source_02": "AE2",
+    "ae_source_01": "AE1",
 }
 
 
@@ -4829,7 +4870,7 @@ def clean_display_token(value):
 
     Examples:
       4722/2026   -> 4722-2026
-      QF-RFQ-1409 -> QF-RFQ-1409
+      XY-RFQ-1409 -> XY-RFQ-1409
 
     Unicode letters/numbers are preserved; punctuation/whitespace is collapsed
     to a single hyphen.

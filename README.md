@@ -1,6 +1,12 @@
 # TenderFusion: Data Engineering Capstone 2026
 
-An end-to-end data pipeline that collects public tenders from **10 tender sources across the GCC**, including government procurement portals, Qatar Foundation, and GlobalTenders listings for Qatar and the UAE. It stores them in a **Bronze → Silver → Gold** (medallion) lakehouse on Azure Blob Storage and publishes a clean, classified Gold table for a Power BI dashboard.
+An end-to-end data pipeline that collects public tenders from **10 tender sources across six GCC countries** (government procurement portals and public tender listing sites). It stores them in a **Bronze → Silver → Gold** (medallion) lakehouse on Azure Blob Storage and publishes a clean, classified Gold table for a Power BI dashboard.
+
+> **Source confidentiality (NDA).** The identities, URLs and endpoints of the data sources are covered by a non-disclosure agreement. They are **not** included in this repository. Every source is referred to by an anonymised alias (e.g. `sa_source_01`), and the real settings are supplied at runtime from a private, git-ignored configuration (see [Section 5](#5-api-keys-environment-variables-and-setup)).
+
+![Power BI dashboard](03_assets/powerbi_dashboard.png)
+
+*Power BI dashboard built on the Gold table.*
 
 ---
 
@@ -13,20 +19,22 @@ An end-to-end data pipeline that collects public tenders from **10 tender source
 | **Silver** | `02_src/silver/silver.py` | Pure pandas, no Spark. It profiles the data (4V checks), classifies each tender as **Technology / Review / Non-Tech** using rule-based Arabic + English title evidence, and maps all 10 sources to one unified schema. It also converts values to SAR, cleans and parses dates, builds a stable `tender_id`, removes duplicates and runs quality gates. | Delta table + CSV (`tendersilver`) |
 | **Gold** | `02_src/goldpip/gold.py` | Selects the dashboard columns and derives **Open / Closed** status from `closing_date` (Asia/Riyadh). | Delta table + CSV (`tendergold`), read by Power BI |
 
-**Sources (10):**
+**Sources (10, anonymised):**
 
-| Source key | Portal | Country | Method |
+| Source alias | Country | Method | `tender_code` prefix |
 |---|---|---|---|
-| `etimad` | tenders.etimad.sa | Saudi Arabia | requests (JSON) |
-| `forsah` | forsah.sa | Saudi Arabia | requests (API) |
-| `oman_T_tendersBoard` | etendering.tenderboard.gov.om | Oman | Playwright |
-| `qatar_monaqasat` | monaqasat.mof.gov.qa | Qatar | Playwright |
-| `qatar_foundation` | suppliers.qf.org.qa | Qatar | Playwright |
-| `qatar` | globaltenders.com (Qatar) | Qatar | Playwright |
-| `uae_mof` | mof.gov.ae | UAE | Playwright |
-| `uae_global` | globaltenders.com (UAE) | UAE | Playwright |
-| `bahrain` | tenderboard.gov.bh | Bahrain | Playwright |
-| `capt_kw` | capt.gov.kw | Kuwait | Playwright |
+| `sa_source_01` | Saudi Arabia | requests (JSON) | `SA1` |
+| `sa_source_02` | Saudi Arabia | requests (API) | `SA2` |
+| `om_source_01` | Oman | Playwright | `OM1` |
+| `qa_source_01` | Qatar | Playwright | `QA1` |
+| `qa_source_02` | Qatar | Playwright | `QA2` |
+| `qa_source_03` | Qatar | Playwright | `QA3` |
+| `ae_source_01` | UAE | Playwright | `AE1` |
+| `ae_source_02` | UAE | Playwright | `AE2` |
+| `bh_source_01` | Bahrain | Playwright | `BH1` |
+| `kw_source_01` | Kuwait | Playwright | `KW1` |
+
+The alias is used everywhere: extractor file name (`extractors/<alias>.py`), raw file (`<alias>.json`), Bronze folder (`tenderbronze/<alias>/...`) and the `source_name` column in Silver and Gold. The mapping from alias to real source is kept privately by the team and is not published.
 
 The team runs extraction directly with **`main.py`** and runs Silver and Gold in **Databricks**, using Databricks Secrets for Azure access. Docker and the included GitHub Actions workflow are optional deployment alternatives. The workflow creates a manually triggered Azure Container Apps job; scheduling must be configured separately.
 
@@ -59,7 +67,8 @@ The following tree describes the supplied `02_code` package. It is not a verifie
 │   ├── main.py               # Extraction entry point (runs every extractor, then uploads to Bronze)
 │   ├── azure_upload.py       # Bronze restore / upload helpers
 │   ├── run_local_pipeline.py # Runs the Azure pipeline from a local terminal
-│   ├── extractors/           # One scraper per portal + shared helpers (_browser_fallback, _date_utils, _paths)
+│   ├── extractors/           # One scraper per source alias + shared helpers (_browser_fallback, _date_utils, _paths, _sources_config)
+│   ├── config/sources.example.json  # Template for the private source config (real file is git-ignored)
 │   ├── silver/silver.py      # Silver layer
 │   ├── goldpip/gold.py       # Gold layer
 │   ├── tests/                # Unit tests (browser fallback logic, no internet needed)
@@ -68,7 +77,7 @@ The following tree describes the supplied `02_code` package. It is not a verifie
 │   ├── Dockerfile, docker-compose.yml, Dockerfile.dockerignore
 │   ├── .github/workflows/deploy.yml   # CI/CD to Azure Container Apps (copy of the repo workflow)
 │   └── .env.example          # Common environment settings and examples
-├── 03_assets/               # Power BI dashboard assets
+├── 03_assets/               # Power BI dashboard assets (powerbi_dashboard.png)
 ├── requirements.txt
 └── README.md
 ```
@@ -84,14 +93,14 @@ The following tree describes the supplied `02_code` package. It is not a verifie
 
 | Package | Used for |
 |---|---|
-| `requests`, `beautifulsoup4` | API/HTML scraping (Etimad, Forsah) |
+| `requests`, `beautifulsoup4` | API/HTML scraping (`sa_source_01`, `sa_source_02`) |
 | `playwright==1.62.0` | Browser-based scraping |
 | `azure-storage-blob` | Reading/writing the Bronze, Silver, Gold containers |
 | `pandas`, `numpy` | Silver & Gold transformations |
 | `pyarrow`, `deltalake` | Writing Delta tables without Spark (delta-rs) |
 | `databricks-sdk` | *(optional)* `setup_secrets.py` only |
 
-An **Azure Storage account** and credentials are required for the complete pipeline. **Databricks** is used for the team’s cloud execution. **Docker** is optional. Power BI provides dashboard visuals; add exported screenshots to `03_assets/`.
+An **Azure Storage account** and credentials are required for the complete pipeline. **Databricks** is used for the team’s cloud execution. **Docker** is optional. Power BI provides the dashboard visuals; the screenshot shown above is stored in `03_assets/powerbi_dashboard.png`.
 
 ---
 
@@ -111,6 +120,10 @@ python -m pip install -r requirements.txt
 python -m playwright install chromium firefox webkit
 #    Linux servers without a desktop also need the system libraries:
 #    python -m playwright install --with-deps chromium firefox webkit
+
+# 4) add the private source config (team members only, provided under NDA)
+cp config/sources.example.json config/sources.local.json
+#    then fill in the real values -- this file is git-ignored, never commit it
 ```
 
 ---
@@ -180,21 +193,24 @@ docker compose up --build       # writes raw JSON into 02_code/01_data/raw
 ### E. Tests
 
 ```bash
-python -m unittest discover -s tests -v   # 6 tests, run offline
+python -m unittest discover -s tests -v   # 6 tests, run offline (use a dummy source config, no real URLs needed)
 ```
 
 ---
 
 ## 5. API keys, environment variables and setup
 
-**No API keys are needed to scrape.** The configured sources provide public tender listings. Azure credentials are required for the complete pipeline. Running `main.py` alone without credentials skips uploading; Silver still requires Azure Bronze access. See `02_src/.env.example` for common settings. Python scripts read exported environment variables and do not automatically load a `.env` file; Docker Compose reads `.env` from `02_src` for values referenced in `docker-compose.yml`.
+**No API keys are needed to scrape.** The configured sources provide public tender listings. However, the **source URLs and endpoints are confidential (NDA)** and must be supplied through the private source config described below; without it, each extractor stops with a clear `Missing private setting ...` message and `main.py` continues with the others. Azure credentials are required for the complete pipeline. Running `main.py` alone without credentials skips uploading; Silver still requires Azure Bronze access. See `02_src/.env.example` for common settings. Python scripts read exported environment variables and do not automatically load a `.env` file; Docker Compose reads `.env` from `02_src` for values referenced in `docker-compose.yml`.
 
 | Variable | Needed for | Default |
 |---|---|---|
+| `TENDER_SOURCES_CONFIG` | Path to the private source config (NDA) | `config/sources.local.json` |
+| `TENDER_SOURCES_JSON` | The whole private source config as one JSON string (CI, Docker, cloud jobs). Takes priority over the file | unset |
+| `<ALIAS>_<KEY>` | Override one private setting, e.g. `SA_SOURCE_01_API_URL`. Highest priority | unset |
 | `AZURE_STORAGE_CONNECTION_STRING` | Upload to / read from Azure. Must contain `AccountName` and `AccountKey` (delta-rs needs them). | unset → extraction upload skipped; direct cloud Silver/Gold runs require credentials |
 | `BLOB_CONTAINER_NAME` | Bronze container `main.py` uploads to | `tenderbronze` |
 | `BRONZE_CONTAINER` / `SILVER_CONTAINER` / `GOLD_CONTAINER` | Container names for Silver/Gold | `tenderbronze` / `tendersilver` / `tendergold` |
-| `HEADLESS` | `1` hides the browser window for the Bahrain scraper (set it on servers) | `0` locally, `1` on Databricks |
+| `HEADLESS` | `1` hides the browser window for the `bh_source_01` scraper (set it on servers) | `0` locally, `1` on Databricks |
 | `TENDER_DATA_DIR` | Change where raw JSON is stored | `02_code/01_data` |
 | `SILVER_MODE` | `rebuild` (all Bronze history), `incremental` (new blobs only), `auto` | `rebuild` |
 | `SILVER_DRY_RUN` | Run Silver directly without writing outputs or running its final cleanup; the full-pipeline runner rejects this mode | `false` |
@@ -202,9 +218,11 @@ python -m unittest discover -s tests -v   # 6 tests, run offline
 | `RESTORE_RAW_FROM_BRONZE` | Cloud job: restore the last Bronze copy before scraping (`auto`/`always`/`never`) | `auto` |
 | `GOLD_TIMEZONE`, `GOLD_AS_OF_DATE` | Date used for Open/Closed status | `Asia/Riyadh`, today |
 
-**Databricks setup:** store the Azure connection string in scope `azure-storage`, key `connection-string`. `setup_secrets.py` requires authenticated Databricks SDK access. GitHub Secrets are not needed for this direct Databricks workflow. When running stages separately, keep `BLOB_CONTAINER_NAME` and `BRONZE_CONTAINER` aligned.
+**Private source config (NDA):** copy `config/sources.example.json` to `config/sources.local.json` and fill in the real values supplied to the team. The file is listed in `.gitignore` and `.dockerignore`. Settings are resolved in this order: `<ALIAS>_<KEY>` environment variable → `TENDER_SOURCES_JSON` → the file at `TENDER_SOURCES_CONFIG`. Docker Compose mounts the file read-only instead of copying it into the image; the GitHub Actions workflow expects it as the repository secret `TENDER_SOURCES_JSON`.
 
-Never commit a real `.env` file or connection string. `.env` is already listed in `.gitignore`.
+**Databricks setup:** store the Azure connection string in scope `azure-storage`, key `connection-string`, and the private source config JSON in scope `tender-sources`, key `config` (`main.py` and Silver read it automatically). `setup_secrets.py` requires authenticated Databricks SDK access. GitHub Secrets are not needed for this direct Databricks workflow. When running stages separately, keep `BLOB_CONTAINER_NAME` and `BRONZE_CONTAINER` aligned.
+
+Never commit a real `.env` file, connection string or `config/sources.local.json`. All three are already listed in `.gitignore`.
 
 ---
 
@@ -214,11 +232,12 @@ Never commit a real `.env` file or connection string. `.env` is already listed i
 - **Delta cleanup:** Silver removes obsolete Delta data files immediately during normal runs; final cleanup is skipped during `SILVER_DRY_RUN`. Previous versions and concurrent readers may depend on those files. Cleanup does not guarantee one active Parquet file. Keep `_delta_log`, which is required for Delta tables.
 - **Output schema:** `tender_type` is omitted from Silver output; the supplied Gold code does not require it.
 - **Scrapers depend on the portals' HTML/APIs.** If a site changes its layout, adds a CAPTCHA or goes down, that extractor fails. `main.py` then marks it `WARNING: ... extraction failed`, and continues with the other sources. Check the extraction summary: `main.py` can finish with exit code 0 even when individual extractors fail, so exit code alone does not confirm fresh data from every source.
-- **Rate limits and access limits.** Etimad returns HTTP 429 if pages are requested too fast (a 3-second delay is built in). GlobalTenders (the `qatar` and `uae_global` sources) shows guests only the first ~100 results.
-- **Bahrain opens a visible browser locally** by default. Set `HEADLESS=1` on servers or in Docker.
+- **Rate limits and access limits.** `sa_source_01` returns HTTP 429 if pages are requested too fast (a 3-second delay is built in). `qa_source_03` and `ae_source_02` show guests only the first ~100 results.
+- **`bh_source_01` opens a visible browser locally** by default. Set `HEADLESS=1` on servers or in Docker.
 - **Classification is rule-based** (keyword evidence in Arabic and English, no ML). Ambiguous titles are sent to `Review` instead of being guessed. The proportion marked `Review` depends on the exported dataset.
 - **Currency conversion uses fixed FX rates** (dated 2026-09-21, hard-coded in Silver). They are not live rates.
 - **Missing closing dates count as Open** in Gold (team decision). Some sources don't publish a closing date.
 - **Silver needs history for all 10 sources** in Bronze on a rebuild. It stops with an error if a source has never been uploaded.
-- The Oman output file is named `oman_T_tendersBoard.json` and the Qatar MoF extractor file is `qaatar-monaqasat.py`. Both names are kept as they are because Bronze and Silver already use them.
+- **Source names are anonymised.** Extractor files, raw files, Bronze folders, `source_name` and the `tender_code` prefixes all use the aliases above. Bronze data collected before the rename must be migrated to the new folder names (team-internal script) and Silver rebuilt with `SILVER_MODE=rebuild`; `tender_id` / `tender_code` values change once after that rebuild.
+- **Confidentiality of outputs.** The repository contains no source identities, but the Silver/Gold data in Azure still holds each tender's original `source_url`. Do not publish exports or dashboard screenshots that show those links.
 - `deploy.yml` builds from the GitHub repository, where the code sits at the repo root. The local `Dockerfile` in this folder is adapted to the `02_code` layout.

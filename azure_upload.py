@@ -64,7 +64,7 @@ def _latest_bronze_blobs(container_client):
 def restore_raw_from_bronze():
     """
     The Container Apps job starts with an EMPTY results/raw folder on every
-    run, so extractors that read their previous JSON (capt_kw, Oman) would
+    run, so extractors that read their previous JSON (e.g. kw_source_01, om_source_01) would
     behave differently than on a laptop. This downloads the newest Bronze
     copy of each source first, so the job and local runs behave the same.
     Bronze itself is only read, never changed.

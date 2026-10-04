@@ -8,3 +8,8 @@ __pycache__/
 venv/
 .env
 .DS_Store
+
+# Private source config (NDA) -- mount at runtime, never bake into the image
+config/sources.local.json
+*.local.json
+PRIVATE_DO_NOT_COMMIT/

@@ -1,9 +1,11 @@
 if __package__:
     from ._browser_fallback import open_with_fallback
     from ._date_utils import all_records_before_today
+    from ._sources_config import get_source_setting
 else:
     from _browser_fallback import open_with_fallback
     from _date_utils import all_records_before_today
+    from _sources_config import get_source_setting
 
 import json
 import sys
@@ -19,14 +21,11 @@ from playwright.sync_api import (
 )
 
 
-SOURCE_NAME = "qatar_monaqasat"
+SOURCE_NAME = "qa_source_01"
 SOURCE_CURRENCY = "QAR"
 
-BASE_URL = (
-    "https://monaqasat.mof.gov.qa/"
-    "TendersOnlineServices/"
-    "AvailableMinistriesTenders/"
-)
+# Real URL is private (NDA) -> config/sources.local.json
+BASE_URL = get_source_setting(SOURCE_NAME, "base_url")
 
 
 PROJECT_ROOT = (
@@ -44,7 +43,7 @@ OUTPUT_DIR = (
 
 OUTPUT_FILE = (
     OUTPUT_DIR
-    / "qatar_monaqasat.json"
+    / f"{SOURCE_NAME}.json"
 )
 
 
@@ -118,7 +117,7 @@ def load_existing_records():
 
         raise RuntimeError(
             "Could not read existing "
-            "Qatar monaqasat JSON: "
+            f"{SOURCE_NAME} JSON: "
             f"{exc}"
         ) from exc
 
@@ -128,7 +127,7 @@ def load_existing_records():
     ):
 
         raise RuntimeError(
-            "Existing Qatar monaqasat"
+            f"Existing {SOURCE_NAME}"
             "JSON must contain a list."
         )
 
@@ -463,7 +462,7 @@ def extract_page(
 
     raise RuntimeError(
         "Could not extract "
-        "Qatar monaqasat "
+        f"{SOURCE_NAME} "
         f"page {page_number}: "
         f"{last_error}"
     )
@@ -510,7 +509,7 @@ def scrape_all_pages(
 
                         raise RuntimeError(
                             "No tenders found "
-                            "on Qatar monaqasat "
+                            f"on {SOURCE_NAME} "
                             "page 1."
                         )
 
