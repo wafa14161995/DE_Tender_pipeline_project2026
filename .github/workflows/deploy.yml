@@ -84,11 +84,18 @@ jobs:
         env:
           TENDER_SOURCES_JSON: ${{ secrets.TENDER_SOURCES_JSON }}
         run: |
+          set -e
+          if [ -z "$TENDER_SOURCES_JSON" ]; then
+            echo "::error::GitHub secret TENDER_SOURCES_JSON is missing or empty. Add it under Settings -> Secrets and variables -> Actions (contents of config/sources.local.json)."
+            exit 1
+          fi
+          # Minify to one line so the CLI receives it as a single clean value
+          SOURCES_ONE_LINE=$(echo "$TENDER_SOURCES_JSON" | jq -c .)
           az containerapp job secret set \
             --name "$JOB_NAME" \
             --resource-group "$RESOURCE_GROUP" \
             --secrets azstorageconn="${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}" \
-                      tendersources="$TENDER_SOURCES_JSON"
+                      tendersources="$SOURCES_ONE_LINE"
 
       # NOTE: this OVERWRITES whatever env vars were previously set on this
       # job (e.g. if it was previously running the old Node.js/SQL version).
